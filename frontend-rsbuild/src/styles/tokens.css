@@ -112,7 +112,6 @@
     --stagger-step-scan: 0.012s; /* 节点 tile 扫描交错步进（--i 封顶 SCAN_STAGGER_CAP 在 tokens.ts） */
 
     /* ── 5. 层级 ─────────────────────────────────────────────────────── */
-    --z-float: 40; /* MCP 浮动控件（低于弹窗） */
     --z-modal: 50;
     --z-toast: 60;
 
@@ -168,7 +167,7 @@
     --modal-conn-inset: 48px; /* 链接统计弹窗距视口四边 */
     --onboarding-w: 460px;
     --toast-min-w: 220px;
-    --float-offset: 20px; /* 浮层距视口边（toast 右上 / MCP 右下） */
+    --float-offset: 20px; /* toast 距视口边 */
     --float-offset-mobile: 12px;
     --num-w: 5.5rem; /* 速率数值定宽：实测最宽 "1023 MB/s" ≈ 79px，取 88px 留余量 */
     --node-name-max: 11rem; /* 顶栏当前节点名截断 */

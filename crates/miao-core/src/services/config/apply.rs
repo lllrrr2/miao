@@ -72,6 +72,12 @@ impl RuntimeUpdate {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SubscriptionRefreshOutcome {
+    pub fetch_succeeded: bool,
+    pub runtime_update: RuntimeUpdate,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ConfigApplyEffect {
     /// Different runtime bytes were activated by starting, reloading or

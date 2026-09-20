@@ -103,7 +103,7 @@ disabled_nodes:
 
 ## MCP：让 AI agent 操作代理
 
-设置 `mcp: true` 或使用面板右下角开关，连接 `http://<面板地址>/mcp`；关闭时返回 404。当前实现 MCP `2025-11-25` Streamable HTTP：先 `initialize`，再 `notifications/initialized`，后续请求携带 `MCP-Protocol-Version`；无 session、无 SSE，启用时 `GET /mcp` 返回 405。
+设置 `mcp: true` 或使用面板顶部 MCP 开关，连接 `http://<面板地址>/mcp`；关闭时返回 404。顶部的 Claude、Codex、Pi 图标可复制对应客户端的添加命令（Pi 需已安装 `pi-mcp-adapter`）。当前实现 MCP `2025-11-25` Streamable HTTP：先 `initialize`，再 `notifications/initialized`，后续请求携带 `MCP-Protocol-Version`；无 session、无 SSE，启用时 `GET /mcp` 返回 405。
 
 用 `tools/list` 获取完整工具和参数。工具覆盖状态、流量/连接、启停、节点策略/倍率、切换/测速、订阅、定时刷新、手动节点、规则、MCP 开关、VPS 部署和升级；平台不支持的操作返回明确错误。主题、弹窗、PWA 和分享链接解析属于浏览器本地功能；结构化节点可通过 `add_node` / `import_nodes` 导入。
 

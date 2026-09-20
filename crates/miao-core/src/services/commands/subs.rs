@@ -293,7 +293,7 @@ pub async fn add_subs_batch(
         }
     }
 
-    let (result, _) = edit_subscriptions(&state, false, |subs| {
+    let (result, _, _) = edit_subscriptions(&state, false, |subs| {
         let mut added = 0;
         let mut skipped = 0;
         for url in urls {
@@ -334,17 +334,53 @@ pub async fn delete_sub(state: Arc<AppState>, req: SubRequest) -> CommandResult 
     Ok(success_no_data("Subscription deleted"))
 }
 
-pub async fn refresh_subs(state: Arc<AppState>) -> CommandResult {
-    super::ensure_initialized(&state)?;
+#[derive(Debug, serde::Serialize)]
+pub struct SubscriptionRefreshResult {
+    /// Compatibility alias for existing MCP consumers. It now carries the
+    /// truthful fetch result instead of being unconditionally true.
+    pub refreshed: bool,
+    pub fetch_succeeded: bool,
+    pub runtime_updated: bool,
+    pub started: bool,
+    pub reloaded: bool,
+    pub restarted: bool,
+    pub warning: Option<String>,
+}
 
-    let update = refresh_subscriptions_foreground(&state)
+pub async fn refresh_subs(state: Arc<AppState>) -> CommandResult<SubscriptionRefreshResult> {
+    super::ensure_initialized(&state)?;
+    if state.config.read().await.subs.is_empty() {
+        return Err(command_error(
+            CommandErrorKind::InvalidInput,
+            "没有配置订阅，无可刷新",
+        ));
+    }
+
+    let outcome = refresh_subscriptions_foreground(&state)
         .await
         .map_err(|error| subscription_error(error, CommandErrorKind::InvalidInput))?;
-    Ok(success_no_data(if update.updated() {
-        "Subscriptions refreshed and runtime updated"
-    } else {
-        "Subscriptions refreshed"
-    }))
+    let update = outcome.runtime_update;
+    let warning = state.config_warning.lock().await.clone();
+    Ok(success(
+        if outcome.fetch_succeeded {
+            if update.updated() {
+                "Subscriptions fetched and runtime updated"
+            } else {
+                "Subscriptions fetched"
+            }
+        } else {
+            "Subscription fetch failed; kept cached configuration"
+        },
+        SubscriptionRefreshResult {
+            refreshed: outcome.fetch_succeeded,
+            fetch_succeeded: outcome.fetch_succeeded,
+            runtime_updated: update.updated(),
+            started: update == crate::services::config::RuntimeUpdate::Started,
+            reloaded: update == crate::services::config::RuntimeUpdate::Reloaded,
+            restarted: update == crate::services::config::RuntimeUpdate::Restarted,
+            warning,
+        },
+    ))
 }
 
 fn subscription_error(

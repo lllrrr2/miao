@@ -189,29 +189,70 @@
     transform: translateX(calc(var(--size-toggle-w) - var(--size-toggle-h)));
     background: var(--toggle-thumb-on);
 }
-/* 首页右下角的 MCP 浮动控件；z-index 低于 modal-overlay */
-.mcp-float {
-    position: fixed;
-    right: var(--float-offset);
-    bottom: var(--float-offset);
-    z-index: var(--z-float);
+/* 顶栏 MCP 控件：开关后紧跟各 agent 的命令复制入口 */
+.topbar-mcp-slot {
+    display: contents;
+}
+.mcp-control {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-2);
-    border-radius: var(--r-pill);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow);
+    gap: var(--space-1);
+    min-height: var(--chip-h);
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--r-md);
+    background: var(--surface-soft);
+    border: var(--bw) solid var(--border-soft);
+    flex: 0 0 auto;
 }
-.mcp-float .toggle-switch {
+.mcp-control .toggle-switch {
     margin-left: 0;
 }
-.mcp-float-label {
+.mcp-control-label {
     color: var(--text-muted);
     font-size: var(--fs-xs);
     font-weight: var(--fw-heavy);
     letter-spacing: var(--ls-caps);
+}
+.mcp-control-divider {
+    width: var(--bw);
+    height: var(--control-h-sm);
+    margin: 0 var(--space-0);
+    background: var(--border);
+}
+.mcp-agent-buttons {
+    display: flex;
+    align-items: center;
+    gap: var(--space-0);
+}
+.mcp-agent-button {
+    width: var(--size-icon-btn-sm);
+    height: var(--size-icon-btn-sm);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-0);
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--text-strong);
+    transition: var(--dur) var(--ease);
+}
+.mcp-agent-button:hover {
+    background: var(--hover-strong);
+}
+.mcp-agent-button:focus-visible {
+    outline: var(--bw-strong) solid var(--accent-strong);
+    outline-offset: 1px;
+}
+.mcp-agent-button svg {
+    width: 100%;
+    height: 100%;
+}
+.mcp-agent-button:not(.pi) svg {
+    fill: currentColor;
+}
+.mcp-agent-button.claude {
+    color: #d4a27f; /* Anthropic 品牌色；第三方品牌色不进入主题 token */
 }
 .btn {
     border: var(--bw) solid transparent;

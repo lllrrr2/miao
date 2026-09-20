@@ -6,7 +6,8 @@ use serde_json::{json, Value as JsonValue};
 #[cfg(not(windows))]
 use crate::models::VpsDeployRequest;
 use crate::models::{
-    BatchNodeRequest, DeleteNodeRequest, DeleteRuleRequest, McpRequest, NodeRequest, RuleRequest,
+    BatchNodeRequest, DeleteNodeRequest, DeleteRuleRequest, MaxMultiplierRequest, McpRequest,
+    NodeRequest, NodeSelectRequest, RouteMode, RouteModeRequest, RuleRequest,
     ScheduledRefreshRequest, SetNodeDisabledRequest, SubBatchRequest, SubRequest,
 };
 use crate::services::commands::{self, CommandReply, CommandResult};
@@ -60,6 +61,13 @@ pub(super) async fn list_subscriptions(state: &Arc<AppState>) -> Result<JsonValu
     let response = commands::subs::get_subs(state.clone()).await;
     let subscriptions = response_data(response)?;
     Ok(json!({ "subscriptions": subscriptions }))
+}
+
+pub(super) async fn refresh_subscriptions(state: &Arc<AppState>) -> Result<JsonValue, String> {
+    let response = commands::subs::refresh_subs(state.clone())
+        .await
+        .map_err(|error| error.to_string())?;
+    response_data(response)
 }
 
 pub(super) async fn add_subscriptions(
@@ -156,6 +164,84 @@ pub(super) async fn delete_node(
         )
         .await,
     )
+}
+
+pub(super) async fn set_route_mode(
+    state: &Arc<AppState>,
+    args: &JsonValue,
+) -> Result<JsonValue, String> {
+    let mode = args
+        .get("mode")
+        .and_then(JsonValue::as_str)
+        .ok_or_else(|| "Invalid params: missing `mode`".to_string())?;
+    let route_mode = match mode {
+        "rule" => RouteMode::Rule,
+        "global" => RouteMode::Global,
+        _ => return Err("Invalid params: `mode` 必须是 rule 或 global".to_string()),
+    };
+    let response =
+        commands::service::set_route_mode(state.clone(), RouteModeRequest { route_mode })
+            .await
+            .map_err(|error| error.to_string())?;
+    let changed = response.data.as_ref().is_some_and(|data| data.changed);
+    let mut payload = response_data(response)?;
+    payload["note"] = json!(if changed {
+        "已写入易变层配置；OpenWrt/Linux 系统重启后回到 config.yaml 的启动默认值（未设置则规则分流）"
+    } else {
+        "未变化"
+    });
+    Ok(payload)
+}
+
+pub(super) async fn set_node_select(
+    state: &Arc<AppState>,
+    args: &JsonValue,
+) -> Result<JsonValue, String> {
+    let select = args
+        .get("select")
+        .and_then(JsonValue::as_str)
+        .ok_or_else(|| "Invalid params: missing `select`".to_string())?;
+    let response = commands::service::set_node_select(
+        state.clone(),
+        NodeSelectRequest {
+            node_select: select.to_string(),
+        },
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    let result = response
+        .data
+        .as_ref()
+        .ok_or_else(|| "读取接口未返回预期数据".to_string())?;
+    let note = if result.fell_back_to_manual {
+        crate::services::config::REGION_FALLBACK
+    } else if result.changed {
+        "已保存节点选择偏好"
+    } else {
+        "未变化"
+    };
+    let mut payload = response_data(response)?;
+    payload["note"] = json!(note);
+    Ok(payload)
+}
+
+pub(super) async fn set_max_multiplier(
+    state: &Arc<AppState>,
+    args: &JsonValue,
+) -> Result<JsonValue, String> {
+    let request: MaxMultiplierRequest =
+        serde_json::from_value(args.clone()).map_err(|err| format!("Invalid params: {err}"))?;
+    let response = commands::service::set_max_multiplier(state.clone(), request)
+        .await
+        .map_err(|error| error.to_string())?;
+    let changed = response.data.as_ref().is_some_and(|data| data.changed);
+    let mut payload = response_data(response)?;
+    payload["note"] = json!(if changed {
+        "已保存最高倍率偏好"
+    } else {
+        "未变化"
+    });
+    Ok(payload)
 }
 
 pub(super) async fn add_rule(state: &Arc<AppState>, args: &JsonValue) -> Result<JsonValue, String> {

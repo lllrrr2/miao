@@ -6,7 +6,7 @@
 mod catalog;
 mod panel;
 
-use catalog::tools_catalog;
+use catalog::{tools_catalog, validate_tool_arguments};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,9 +15,8 @@ use futures::stream::{self, StreamExt};
 use serde_json::{json, Value as JsonValue};
 
 use crate::error::AppResult;
-use crate::models::{LastProxy, NodeMultiplier, NodeSelect, RouteMode};
+use crate::models::LastProxy;
 use crate::services::{
-    config::{RuntimeUpdate, REGION_FALLBACK},
     singbox::{kernel_status, CLASH_API_BASE, CLASH_TRAFFIC_WS},
     status::{legacy_warning, runtime_config_status, runtime_warnings},
 };
@@ -105,9 +104,12 @@ pub async fn handle(state: &Arc<AppState>, body: &[u8]) -> Option<JsonValue> {
             Ok((name, _args)) if !tool_exists(name) => {
                 Err((-32602, format!("Unknown tool: {name}")))
             }
-            Ok((name, args)) => match handle_tool_call(state, name, &args).await {
-                Ok(payload) => Ok(tool_result(payload)),
+            Ok((name, args)) => match validate_tool_arguments(name, &args) {
                 Err(message) => Ok(tool_error_result(&message)),
+                Ok(()) => match handle_tool_call(state, name, &args).await {
+                    Ok(payload) => Ok(tool_result(payload)),
+                    Err(message) => Ok(tool_error_result(&message)),
+                },
             },
         },
         _ => Err((-32601, format!("Method not found: {method}"))),
@@ -285,7 +287,7 @@ async fn handle_tool_call(
         "list_subscriptions" => panel::list_subscriptions(state).await,
         "add_subscriptions" => panel::add_subscriptions(state, args).await,
         "delete_subscription" => panel::delete_subscription(state, args).await,
-        "refresh_subscriptions" => tool_refresh_subscriptions(state).await,
+        "refresh_subscriptions" => panel::refresh_subscriptions(state).await,
         "scan_clash_verge" => panel::scan_clash_verge(state).await,
         "list_subscription_nodes" => panel::list_subscription_nodes(state).await,
         "set_subscription_node_disabled" => {
@@ -297,10 +299,10 @@ async fn handle_tool_call(
         "import_nodes" => panel::import_nodes(state, args).await,
         "delete_node" => panel::delete_node(state, args).await,
         "switch_node" => tool_switch_node(state, args).await,
-        "set_node_select" => tool_set_node_select(state, args).await,
-        "set_max_multiplier" => tool_set_max_multiplier(state, args).await,
+        "set_node_select" => panel::set_node_select(state, args).await,
+        "set_max_multiplier" => panel::set_max_multiplier(state, args).await,
         "test_delay" => tool_test_delay(state, args).await,
-        "set_route_mode" => tool_set_route_mode(state, args).await,
+        "set_route_mode" => panel::set_route_mode(state, args).await,
         "list_rules" => tool_list_rules(state).await,
         "add_rule" => panel::add_rule(state, args).await,
         "delete_rule" => panel::delete_rule(state, args).await,
@@ -580,155 +582,6 @@ async fn fetch_delay(state: &Arc<AppState>, name: &str) -> i64 {
             .unwrap_or(-1),
         _ => -1,
     }
-}
-
-async fn tool_set_route_mode(state: &Arc<AppState>, args: &JsonValue) -> Result<JsonValue, String> {
-    let mode = args
-        .get("mode")
-        .and_then(JsonValue::as_str)
-        .ok_or_else(|| "Invalid params: missing `mode`".to_string())?;
-    let requested = match mode {
-        "rule" => RouteMode::Rule,
-        "global" => RouteMode::Global,
-        _ => return Err("Invalid params: `mode` 必须是 rule 或 global".to_string()),
-    };
-
-    if state.initializing.load(Ordering::Relaxed) {
-        return Err("初始化进行中，稍后再试".to_string());
-    }
-
-    let (previous, runtime_update) = crate::services::config::apply_route_mode(state, requested)
-        .await
-        .map_err(|e| format!("切换路由模式失败: {e}"))?;
-    let runtime_updated = runtime_update.updated();
-    let changed = previous != requested;
-    let note = if changed {
-        "已写入易变层配置；OpenWrt/Linux 系统重启后回到 config.yaml 的启动默认值（未设置则规则分流）"
-    } else {
-        "未变化"
-    };
-
-    Ok(json!({
-        "route_mode": mode,
-        "changed": changed,
-        "runtime_updated": runtime_updated,
-        "started": runtime_update == RuntimeUpdate::Started,
-        "reloaded": runtime_update == RuntimeUpdate::Reloaded,
-        "restarted": runtime_update == RuntimeUpdate::Restarted,
-        "note": note,
-    }))
-}
-
-/// 与面板「节点选择」同一条链路：配置事务 + 运行时热应用（易变层落盘）。
-/// 地区筛空时内核回退 manual：如实返回实际生效值（与面板提示一致）。
-async fn tool_set_node_select(
-    state: &Arc<AppState>,
-    args: &JsonValue,
-) -> Result<JsonValue, String> {
-    let raw = args
-        .get("select")
-        .and_then(JsonValue::as_str)
-        .ok_or_else(|| "Invalid params: missing `select`".to_string())?;
-    let node_select = NodeSelect::parse(raw).ok_or_else(|| {
-        "Invalid params: `select` 必须是 manual / fastest_hk / fastest_jp / fastest_tw / fastest_sg / fastest_us"
-            .to_string()
-    })?;
-
-    if state.initializing.load(Ordering::Relaxed) {
-        return Err("初始化进行中，稍后再试".to_string());
-    }
-
-    let (previous, effective, runtime_update) =
-        crate::services::config::apply_node_select(state, node_select)
-            .await
-            .map_err(|e| format!("切换节点选择失败: {e}"))?;
-    let runtime_updated = runtime_update.updated();
-    let note = if !node_select.is_manual() && effective.is_manual() {
-        REGION_FALLBACK
-    } else if previous == node_select {
-        "未变化"
-    } else {
-        "已保存节点选择偏好"
-    };
-    Ok(json!({
-        "node_select": effective.as_str(),
-        "requested": raw,
-        "changed": previous != node_select,
-        "runtime_updated": runtime_updated,
-        "started": runtime_update == RuntimeUpdate::Started,
-        "reloaded": runtime_update == RuntimeUpdate::Reloaded,
-        "restarted": runtime_update == RuntimeUpdate::Restarted,
-        "note": note,
-    }))
-}
-
-/// 与面板「最高倍率」同一条链路：限制自动测速候选并持久化偏好。
-async fn tool_set_max_multiplier(
-    state: &Arc<AppState>,
-    args: &JsonValue,
-) -> Result<JsonValue, String> {
-    let value = args
-        .get("max_multiplier")
-        .ok_or_else(|| "Invalid params: missing `max_multiplier`".to_string())?;
-    let max_multiplier = if value.is_null() {
-        None
-    } else {
-        let raw = value.as_str().ok_or_else(|| {
-            "Invalid params: `max_multiplier` 必须是正十进制数字符串或 null".to_string()
-        })?;
-        Some(NodeMultiplier::parse(raw).ok_or_else(|| {
-            "Invalid params: `max_multiplier` 必须是大于 0 且不超过 10000 的十进制数".to_string()
-        })?)
-    };
-
-    if state.initializing.load(Ordering::Relaxed) {
-        return Err("初始化进行中，稍后再试".to_string());
-    }
-
-    let (previous, runtime_update) =
-        crate::services::config::apply_max_multiplier(state, max_multiplier)
-            .await
-            .map_err(|e| format!("设置最高倍率失败: {e}"))?;
-    let format_value = |value: Option<NodeMultiplier>| {
-        value
-            .map(|multiplier| JsonValue::String(multiplier.to_string()))
-            .unwrap_or(JsonValue::Null)
-    };
-    Ok(json!({
-        "max_multiplier": format_value(max_multiplier),
-        "changed": previous != max_multiplier,
-        "runtime_updated": runtime_update.updated(),
-        "started": runtime_update == RuntimeUpdate::Started,
-        "reloaded": runtime_update == RuntimeUpdate::Reloaded,
-        "restarted": runtime_update == RuntimeUpdate::Restarted,
-        "note": if previous == max_multiplier { "未变化" } else { "已保存最高倍率偏好" },
-    }))
-}
-
-/// 与面板「刷新订阅」同一条链路：真拉取 → 生成 → 校验 → 有变化才更新运行配置；
-/// 全部订阅失败时保留当前运行配置。
-async fn tool_refresh_subscriptions(state: &Arc<AppState>) -> Result<JsonValue, String> {
-    if state.initializing.load(Ordering::Relaxed) {
-        return Err("初始化进行中，稍后再试".to_string());
-    }
-    if state.config.read().await.subs.is_empty() {
-        return Err("没有配置订阅，无可刷新".to_string());
-    }
-
-    let runtime_update = crate::services::config::refresh_subscriptions_foreground(state)
-        .await
-        .map_err(|e| format!("刷新订阅失败: {e}"))?;
-    let runtime_updated = runtime_update.updated();
-
-    let warning = state.config_warning.lock().await.clone();
-    Ok(json!({
-        "refreshed": true,
-        "runtime_updated": runtime_updated,
-        "started": runtime_update == RuntimeUpdate::Started,
-        "reloaded": runtime_update == RuntimeUpdate::Reloaded,
-        "restarted": runtime_update == RuntimeUpdate::Restarted,
-        "warning": warning.map(JsonValue::from).unwrap_or(JsonValue::Null),
-    }))
 }
 
 async fn tool_list_rules(state: &Arc<AppState>) -> Result<JsonValue, String> {

@@ -233,9 +233,10 @@ async fn foreground_success_during_slow_wait_prevents_another_background_request
     });
     wait_for_slow_retry(&state).await;
 
-    crate::services::config::refresh_subscriptions_foreground(&state)
+    let outcome = crate::services::config::refresh_subscriptions_foreground(&state)
         .await
         .unwrap();
+    assert!(outcome.fetch_succeeded);
     tokio::time::timeout(std::time::Duration::from_secs(2), background)
         .await
         .unwrap()
@@ -265,9 +266,10 @@ async fn failed_foreground_refresh_does_not_reset_the_fast_retry_budget() {
         .await;
     });
     wait_for_slow_retry(&state).await;
-    crate::services::config::refresh_subscriptions_foreground(&state)
+    let outcome = crate::services::config::refresh_subscriptions_foreground(&state)
         .await
         .unwrap();
+    assert!(!outcome.fetch_succeeded);
     let restored_wait = tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
             let status = state.subscription_refresh.snapshot();

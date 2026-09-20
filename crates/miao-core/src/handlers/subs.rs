@@ -53,7 +53,13 @@ pub async fn delete_sub(
 }
 
 pub async fn refresh_subs(State(state): State<Arc<AppState>>) -> HandlerResult {
-    command_result(commands::subs::refresh_subs(state).await)
+    let result = commands::subs::refresh_subs(state).await.map(|reply| {
+        crate::services::commands::CommandReply::<()> {
+            message: reply.message,
+            data: None,
+        }
+    });
+    command_result(result)
 }
 
 #[cfg(test)]

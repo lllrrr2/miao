@@ -265,6 +265,29 @@ async fn malformed_tool_call_returns_protocol_error() {
 }
 
 #[tokio::test]
+async fn tool_arguments_are_validated_against_the_advertised_schema() {
+    let state = state(Config::default());
+    for (name, arguments, expected) in [
+        ("test_delay", json!({"name": 123}), "string"),
+        ("get_status", json!({"unexpected": true}), "unexpected"),
+        ("list_connections", json!({"limit": 501}), "500"),
+    ] {
+        let response = call(
+            &state,
+            json!({
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": { "name": name, "arguments": arguments },
+            }),
+        )
+        .await;
+        assert_eq!(response["result"]["isError"], true, "{response}");
+        let message = response["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(message.contains("Invalid params"), "{message}");
+        assert!(message.contains(expected), "{message}");
+    }
+}
+
+#[tokio::test]
 async fn get_status_works_when_stopped_without_network() {
     let selected = crate::models::NodeMultiplier::parse("2.5").unwrap();
     let state = state(Config {
@@ -384,7 +407,7 @@ async fn switch_node_validates_arguments() {
     assert!(response["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
-        .contains("missing `name`"));
+        .contains("required"));
 }
 
 #[tokio::test]
@@ -401,7 +424,7 @@ async fn set_route_mode_validates_mode() {
     assert!(response["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
-        .contains("rule 或 global"));
+        .contains("not one of"));
 }
 
 #[tokio::test]
@@ -435,7 +458,7 @@ async fn set_max_multiplier_validates_value() {
     assert!(response["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
-        .contains("大于 0"));
+        .contains("does not match"));
 }
 
 #[tokio::test]

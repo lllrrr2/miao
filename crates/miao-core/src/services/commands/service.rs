@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::{atomic::Ordering, Arc};
 use std::time::Instant;
 use tokio::time::Duration;
@@ -12,6 +12,7 @@ use crate::models::{
     RouteModeRequest, RuntimePhase, StatusData,
 };
 use crate::services::{
+    config::RuntimeUpdate,
     proxy::spawn_restore_last_proxy,
     singbox::{extract_sing_box_to, kernel_status, start_sing_internal, stop_sing_internal},
     status::{legacy_warning, runtime_config_status, runtime_warnings},
@@ -154,17 +155,74 @@ pub async fn stop_service(state: Arc<AppState>) -> CommandResult {
     Ok(success_no_data("sing-box stopped"))
 }
 
-pub async fn set_route_mode(state: Arc<AppState>, req: RouteModeRequest) -> CommandResult {
+#[derive(Debug, Serialize)]
+pub struct RuntimeUpdateResult {
+    pub runtime_updated: bool,
+    pub started: bool,
+    pub reloaded: bool,
+    pub restarted: bool,
+}
+
+impl From<RuntimeUpdate> for RuntimeUpdateResult {
+    fn from(update: RuntimeUpdate) -> Self {
+        Self {
+            runtime_updated: update.updated(),
+            started: update == RuntimeUpdate::Started,
+            reloaded: update == RuntimeUpdate::Reloaded,
+            restarted: update == RuntimeUpdate::Restarted,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct RouteModeResult {
+    pub route_mode: &'static str,
+    pub changed: bool,
+    #[serde(flatten)]
+    pub runtime: RuntimeUpdateResult,
+}
+
+pub async fn set_route_mode(
+    state: Arc<AppState>,
+    req: RouteModeRequest,
+) -> CommandResult<RouteModeResult> {
     super::ensure_initialized(&state)?;
 
     match crate::services::config::apply_route_mode(&state, req.route_mode).await {
-        Ok((_, update)) if update.updated() => Ok(success_no_data("Route mode updated")),
-        Ok(_) => Ok(success_no_data("Route mode unchanged")),
+        Ok((previous, update)) => {
+            let changed = previous != req.route_mode;
+            Ok(success(
+                if changed || update.updated() {
+                    "Route mode updated"
+                } else {
+                    "Route mode unchanged"
+                },
+                RouteModeResult {
+                    route_mode: match req.route_mode {
+                        crate::models::RouteMode::Rule => "rule",
+                        crate::models::RouteMode::Global => "global",
+                    },
+                    changed,
+                    runtime: update.into(),
+                },
+            ))
+        }
         Err(e) => Err(command_error(CommandErrorKind::Internal, e)),
     }
 }
 
-pub async fn set_max_multiplier(state: Arc<AppState>, req: MaxMultiplierRequest) -> CommandResult {
+#[derive(Debug, Serialize)]
+pub struct MaxMultiplierResult {
+    pub max_multiplier: Option<String>,
+    pub changed: bool,
+    #[serde(flatten)]
+    pub runtime: RuntimeUpdateResult,
+}
+
+pub async fn set_max_multiplier(
+    state: Arc<AppState>,
+    req: MaxMultiplierRequest,
+) -> CommandResult<MaxMultiplierResult> {
     super::ensure_initialized(&state)?;
 
     let max_multiplier = req
@@ -181,15 +239,40 @@ pub async fn set_max_multiplier(state: Arc<AppState>, req: MaxMultiplierRequest)
         .transpose()?;
 
     match crate::services::config::apply_max_multiplier(&state, max_multiplier).await {
-        Ok((previous, update)) if previous != max_multiplier || update.updated() => {
-            Ok(success_no_data("Max multiplier updated"))
+        Ok((previous, update)) => {
+            let changed = previous != max_multiplier;
+            Ok(success(
+                if changed || update.updated() {
+                    "Max multiplier updated"
+                } else {
+                    "Max multiplier unchanged"
+                },
+                MaxMultiplierResult {
+                    max_multiplier: max_multiplier.map(|value| value.to_string()),
+                    changed,
+                    runtime: update.into(),
+                },
+            ))
         }
-        Ok(_) => Ok(success_no_data("Max multiplier unchanged")),
         Err(e) => Err(command_error(CommandErrorKind::Internal, e)),
     }
 }
 
-pub async fn set_node_select(state: Arc<AppState>, req: NodeSelectRequest) -> CommandResult {
+#[derive(Debug, Serialize)]
+pub struct NodeSelectResult {
+    pub node_select: &'static str,
+    pub requested: &'static str,
+    pub changed: bool,
+    #[serde(skip)]
+    pub fell_back_to_manual: bool,
+    #[serde(flatten)]
+    pub runtime: RuntimeUpdateResult,
+}
+
+pub async fn set_node_select(
+    state: Arc<AppState>,
+    req: NodeSelectRequest,
+) -> CommandResult<NodeSelectResult> {
     super::ensure_initialized(&state)?;
 
     let node_select = NodeSelect::parse(&req.node_select).ok_or_else(|| {
@@ -201,13 +284,25 @@ pub async fn set_node_select(state: Arc<AppState>, req: NodeSelectRequest) -> Co
 
     match crate::services::config::apply_node_select(&state, node_select).await {
         Ok((previous, effective, update)) => {
-            if !node_select.is_manual() && effective.is_manual() {
-                Ok(success_no_data(crate::services::config::REGION_FALLBACK))
-            } else if previous != node_select || update.updated() || effective != node_select {
-                Ok(success_no_data("Node select updated"))
+            let fell_back_to_manual = !node_select.is_manual() && effective.is_manual();
+            let changed = previous != node_select;
+            let message = if fell_back_to_manual {
+                crate::services::config::REGION_FALLBACK
+            } else if changed || update.updated() || effective != node_select {
+                "Node select updated"
             } else {
-                Ok(success_no_data("Node select unchanged"))
-            }
+                "Node select unchanged"
+            };
+            Ok(success(
+                message,
+                NodeSelectResult {
+                    node_select: effective.as_str(),
+                    requested: node_select.as_str(),
+                    changed,
+                    fell_back_to_manual,
+                    runtime: update.into(),
+                },
+            ))
         }
         Err(e) => Err(command_error(CommandErrorKind::Internal, e)),
     }

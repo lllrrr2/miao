@@ -1,4 +1,69 @@
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
 use serde_json::{json, Value as JsonValue};
+
+struct ToolValidator {
+    validator: jsonschema::Validator,
+    requires_confirmation: bool,
+}
+
+static TOOL_VALIDATORS: OnceLock<Result<HashMap<String, ToolValidator>, String>> = OnceLock::new();
+
+pub(super) fn validate_tool_arguments(name: &str, arguments: &JsonValue) -> Result<(), String> {
+    let validators = TOOL_VALIDATORS
+        .get_or_init(build_tool_validators)
+        .as_ref()
+        .map_err(Clone::clone)?;
+    let validator = validators
+        .get(name)
+        .ok_or_else(|| format!("Unknown tool: {name}"))?;
+    if validator.requires_confirmation
+        && arguments.get("confirm").and_then(JsonValue::as_bool) != Some(true)
+    {
+        return Err(
+            "Invalid params: 执行该操作前必须先获得用户明确确认，然后传入 `confirm: true`"
+                .to_string(),
+        );
+    }
+    if let Some(error) = validator.validator.iter_errors(arguments).next() {
+        let path = error.instance_path().to_string();
+        let location = if path.is_empty() {
+            String::new()
+        } else {
+            format!(" at {path}")
+        };
+        return Err(format!("Invalid params{location}: {error}"));
+    }
+    Ok(())
+}
+
+fn build_tool_validators() -> Result<HashMap<String, ToolValidator>, String> {
+    tools_catalog()
+        .as_array()
+        .expect("tool catalog must be an array")
+        .iter()
+        .map(|tool| {
+            let name = tool["name"]
+                .as_str()
+                .expect("tool name must be a string")
+                .to_string();
+            let schema = &tool["inputSchema"];
+            let requires_confirmation = schema["properties"]["confirm"]["const"] == true;
+            let validator = jsonschema::draft202012::options()
+                .should_validate_formats(true)
+                .build(schema)
+                .map_err(|error| format!("Invalid input schema for tool `{name}`: {error}"))?;
+            Ok((
+                name,
+                ToolValidator {
+                    validator,
+                    requires_confirmation,
+                },
+            ))
+        })
+        .collect()
+}
 
 fn read_only() -> JsonValue {
     json!({ "readOnlyHint": true, "destructiveHint": false })
@@ -144,7 +209,7 @@ pub(super) fn tools_catalog() -> JsonValue {
         },
         {
             "name": "refresh_subscriptions",
-            "description": "立即真实拉取全部订阅并重建配置，不是缓存读取。仅当生成结果变化时更新运行时；失败时优先保留现有可用配置。可能热重载/重启并短暂影响已有连接。",
+            "description": "立即真实拉取全部订阅并重建配置，不是缓存读取。返回 fetch_succeeded 表示是否至少接受了一个新响应，兼容字段 refreshed 与其相同，并分开报告 runtime_updated；全部拉取失败时保留现有可用配置。可能热重载/重启并短暂影响已有连接。",
             "inputSchema": empty_schema(),
             "annotations": mutating(),
         },

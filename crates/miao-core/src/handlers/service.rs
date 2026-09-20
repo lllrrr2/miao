@@ -3,11 +3,18 @@ use crate::models::{
     ScheduledRefreshRequest, ScheduledRefreshStatus, StatusData,
 };
 use crate::responses::{command_reply, command_result, HandlerResult};
-use crate::services::commands;
+use crate::services::commands::{self, CommandReply, CommandResult};
 use crate::state::AppState;
 use axum::{extract::State, response::Json};
 pub(crate) use commands::service::ConnectivityRequest;
 use std::sync::Arc;
+
+fn without_data<T>(result: CommandResult<T>) -> CommandResult {
+    result.map(|reply| CommandReply {
+        message: reply.message,
+        data: None,
+    })
+}
 
 pub async fn get_status(State(state): State<Arc<AppState>>) -> Json<ApiResponse<StatusData>> {
     command_reply(commands::service::get_status(state).await)
@@ -25,21 +32,27 @@ pub async fn set_route_mode(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RouteModeRequest>,
 ) -> HandlerResult {
-    command_result(commands::service::set_route_mode(state, req).await)
+    command_result(without_data(
+        commands::service::set_route_mode(state, req).await,
+    ))
 }
 
 pub async fn set_max_multiplier(
     State(state): State<Arc<AppState>>,
     Json(req): Json<MaxMultiplierRequest>,
 ) -> HandlerResult {
-    command_result(commands::service::set_max_multiplier(state, req).await)
+    command_result(without_data(
+        commands::service::set_max_multiplier(state, req).await,
+    ))
 }
 
 pub async fn set_node_select(
     State(state): State<Arc<AppState>>,
     Json(req): Json<NodeSelectRequest>,
 ) -> HandlerResult {
-    command_result(commands::service::set_node_select(state, req).await)
+    command_result(without_data(
+        commands::service::set_node_select(state, req).await,
+    ))
 }
 
 pub async fn get_scheduled_refresh(
@@ -53,12 +66,7 @@ pub async fn set_scheduled_refresh(
     Json(req): Json<ScheduledRefreshRequest>,
 ) -> HandlerResult {
     // 与其它设置类端点一致：REST 只回消息，完整状态由 GET 读取（MCP 仍返回 data）。
-    let result = commands::settings::set_scheduled_refresh(state, req)
-        .await
-        .map(|reply| crate::services::commands::CommandReply::<()> {
-            message: reply.message,
-            data: None,
-        });
+    let result = without_data(commands::settings::set_scheduled_refresh(state, req).await);
     command_result(result)
 }
 

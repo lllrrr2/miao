@@ -83,7 +83,9 @@ async fn rest_and_mcp_retain_rule_conflict_and_invalid_node_validation() {
     assert_eq!(state.config.read().await.custom_rules, [original]);
 
     let request = NodeRequest::default();
-    let args = json!({"tag":"", "server":"", "server_port":0});
+    // Keep the MCP payload schema-valid so both transports reach the shared
+    // domain validator and can be compared on the same application error.
+    let args = json!({"tag":"", "server":"", "server_port":443});
     let (status, Json(rest)) =
         crate::handlers::nodes::add_node(State(state.clone()), Json(request))
             .await
@@ -224,6 +226,46 @@ fn application_operations_do_not_depend_on_http_handlers_or_axum() {
         assert!(!source.contains("crate::handlers"));
         assert!(!source.contains("axum::"));
         assert!(!source.contains("crate::responses"));
+    }
+
+    let mcp = include_str!("../mcp.rs");
+    let panel = include_str!("../mcp/panel.rs");
+    for operation in [
+        "apply_route_mode",
+        "apply_node_select",
+        "apply_max_multiplier",
+        "refresh_subscriptions_foreground",
+    ] {
+        assert!(
+            !mcp.contains(operation),
+            "MCP transport must use the shared command for {operation}"
+        );
+    }
+    for command in [
+        "commands::service::set_route_mode",
+        "commands::service::set_node_select",
+        "commands::service::set_max_multiplier",
+        "commands::subs::refresh_subs",
+    ] {
+        assert!(panel.contains(command), "missing shared command: {command}");
+    }
+}
+
+#[test]
+fn subscription_refresh_result_preserves_the_refreshed_compatibility_field() {
+    for fetch_succeeded in [false, true] {
+        let result = subs::SubscriptionRefreshResult {
+            refreshed: fetch_succeeded,
+            fetch_succeeded,
+            runtime_updated: false,
+            started: false,
+            reloaded: false,
+            restarted: false,
+            warning: None,
+        };
+        let value = serde_json::to_value(result).unwrap();
+        assert_eq!(value["refreshed"], fetch_succeeded);
+        assert_eq!(value["refreshed"], value["fetch_succeeded"]);
     }
 }
 

@@ -59,13 +59,13 @@ pub async fn edit_subscriptions<T>(
     state: &Arc<AppState>,
     force_refresh: bool,
     mutate: impl FnOnce(&mut Vec<String>) -> Result<T, String>,
-) -> Result<(T, RuntimeUpdate), ConfigMutationError> {
+) -> Result<(T, RuntimeUpdate, bool), ConfigMutationError> {
     let guard = state.config_update.lock().await;
     let before = state.config_with_preferences().await;
     let mut candidate = before.clone();
     let value = mutate(&mut candidate.subs).map_err(ConfigMutationError::Rejected)?;
     if !force_refresh && candidate.subs == before.subs {
-        return Ok((value, RuntimeUpdate::None));
+        return Ok((value, RuntimeUpdate::None, false));
     }
     let generation = state.next_sub_refresh();
     let _foreground = state.subscription_refresh.foreground(generation);
@@ -112,15 +112,20 @@ pub async fn edit_subscriptions<T>(
             .sub_refresh_success_generation
             .store(generation, Ordering::Relaxed);
     }
-    Ok((value, update))
+    Ok((value, update, accepted_response))
 }
 
 pub async fn refresh_subscriptions_foreground(
     state: &Arc<AppState>,
-) -> Result<RuntimeUpdate, ConfigMutationError> {
+) -> Result<SubscriptionRefreshOutcome, ConfigMutationError> {
     edit_subscriptions(state, true, |_| Ok(()))
         .await
-        .map(|(_, update)| update)
+        .map(
+            |(_, runtime_update, fetch_succeeded)| SubscriptionRefreshOutcome {
+                fetch_succeeded,
+                runtime_update,
+            },
+        )
 }
 
 #[cfg(all(test, unix))]

@@ -106,9 +106,10 @@ async fn successful_empty_subscription_finishes_recovery_and_commits_an_empty_sn
     assert!(snapshot.matches_subs(&cfg.subs));
 
     // A foreground empty response is also a success, but only after commit.
-    config::refresh_subscriptions_foreground(&state)
+    let outcome = config::refresh_subscriptions_foreground(&state)
         .await
         .unwrap();
+    assert!(outcome.fetch_succeeded);
     let generation = state.sub_refresh_generation.load(Ordering::Relaxed);
     assert!(generation > 0);
     assert_eq!(

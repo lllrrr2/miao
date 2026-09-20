@@ -24,6 +24,10 @@ function renderTopBar(overrides: Partial<TopBarProps> = {}) {
     delays: { 'node-a': 98 },
     testingNodes: {},
     onTestDelay: rs.fn(),
+    mcpEnabled: true,
+    mcpPending: false,
+    onToggleMcp: rs.fn(),
+    showToast: rs.fn(),
     ...overrides,
   }
   return { ...render(<TopBar {...props} />), props }
@@ -43,6 +47,7 @@ describe('TopBar merged layout', () => {
     expect(container.querySelector('.run-badge')).not.toBeInTheDocument()
     // 速率、模式、版本号都在
     expect(screen.getByTitle('查看链接统计')).toBeInTheDocument()
+    expect(screen.getByLabelText('MCP 控制')).toBeInTheDocument()
     expect(screen.getByRole('group', { name: '代理模式' })).toBeInTheDocument()
     expect(screen.getByText('v0.31.0')).toBeInTheDocument()
   })

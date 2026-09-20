@@ -9,7 +9,9 @@ import {
 } from 'lucide-react'
 import { ICON, LOGO_SIZE } from '../tokens'
 import { SectionCard, LogoIcon } from './ui'
+import { McpControl } from './McpControl'
 import { useTheme, type Theme } from '../hooks/useTheme'
+import type { ToastTone } from '../hooks/useApi'
 import { classNames, formatDelay, formatSpeed, getDelayTone } from '../utils'
 import type { RouteMode, StatusData, VersionInfo } from '../types/api'
 import type { ClashProxy, ClashTraffic } from '../types/clash'
@@ -30,6 +32,10 @@ export interface TopBarProps {
   delays: Record<string, number>
   testingNodes: Record<string, boolean>
   onTestDelay?: (nodeName: string) => void
+  mcpEnabled: boolean
+  mcpPending: boolean
+  onToggleMcp: (enabled: boolean) => void
+  showToast: (message: string, tone?: ToastTone) => number
 }
 
 export function TopBar({
@@ -45,6 +51,10 @@ export function TopBar({
   delays,
   testingNodes,
   onTestDelay,
+  mcpEnabled,
+  mcpPending,
+  onToggleMcp,
+  showToast,
 }: TopBarProps) {
   const upgradeSupported = versionInfo.upgrade_supported !== false
   const label = versionInfo.has_update ? versionInfo.latest : versionInfo.current || 'v--'
@@ -99,6 +109,15 @@ export function TopBar({
           {isTestingCurrent ? <LoaderCircle size={ICON.sm} className="spin" /> : formatDelay(currentNodeDelay)}
         </span>
       </button>
+
+      <div className="topbar-mcp-slot">
+        <McpControl
+          enabled={mcpEnabled}
+          pending={mcpPending}
+          onToggle={onToggleMcp}
+          showToast={showToast}
+        />
+      </div>
 
       <div className="status-card-spacer" />
       <div className="route-mode-segment" role="group" aria-label="代理模式">

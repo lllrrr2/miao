@@ -5,7 +5,6 @@ import {
   SubsCard,
   RulesCard,
   HomeConnections,
-  McpFloat,
   ConfirmModal,
   ConnectionsModal,
   NodeModal,
@@ -85,6 +84,10 @@ export function DashboardScreen({ app }: { app: ReturnType<typeof useAppControll
           delays={app.delays}
           testingNodes={app.testingNodes}
           onTestDelay={app.handleTestDelay}
+          mcpEnabled={Boolean(app.status.mcp)}
+          mcpPending={app.pendingActions.has('toggleMcp')}
+          onToggleMcp={app.handleToggleMcp}
+          showToast={app.showToast}
         />
 
         <div className="content-grid">
@@ -158,13 +161,6 @@ export function DashboardScreen({ app }: { app: ReturnType<typeof useAppControll
           />
         )}
       </main>
-
-      <McpFloat
-        enabled={Boolean(app.status.mcp)}
-        pending={app.pendingActions.has('toggleMcp')}
-        onToggle={app.handleToggleMcp}
-        showToast={app.showToast}
-      />
 
       <ToastStack toasts={app.toasts} onDismiss={app.dismissToast} />
 

@@ -214,19 +214,17 @@ async fn fire(state: &Arc<AppState>) -> FireOutcome {
 
     info!("Scheduled subscription refresh triggered");
     match refresh_subscriptions_foreground(state).await {
-        Ok(update) => {
-            // 口径与启动恢复一致：成功和失败来源都有（partial_failure）属于被接受的
-            // 刷新——失败来源沿用缓存节点、成功来源已提交，不退避重试。
-            // 只有全部来源失败（total_failure）才当作失败，网络恢复后不用等下个计划时刻。
-            let refresh = state.subscription_refresh.snapshot();
-            if refresh.report.total_failure() {
+        Ok(outcome) => {
+            // 成功和失败来源都有时，至少一个新响应已提交，不退避重试；只有所有来源
+            // 都失败、继续沿用缓存时才重试，不再从状态快照反推本次调用的结果。
+            if !outcome.fetch_succeeded {
                 warn!(
-                    update = ?update,
+                    update = ?outcome.runtime_update,
                     "Scheduled subscription refresh failed for every source; keeping current runtime"
                 );
                 FireOutcome::Retryable
             } else {
-                info!(update = ?update, "Scheduled subscription refresh finished");
+                info!(update = ?outcome.runtime_update, "Scheduled subscription refresh finished");
                 FireOutcome::Succeeded
             }
         }
