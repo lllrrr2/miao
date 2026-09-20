@@ -21,6 +21,7 @@ Miao 将 sing-box 内核、分流规则和 Web 面板打包在一起，用 TUN �
 wget https://github.com/YUxiangLuo/miao/releases/latest/download/miao-rust-linux-amd64 -O miao
 chmod +x miao
 sudo ./miao
+#面板在 localhost:6161
 ```
 
 也可使用临时订阅，以“日本最快”启动：
