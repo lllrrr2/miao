@@ -51,3 +51,6 @@ curl -fsSL https://raw.githubusercontent.com/YUxiangLuo/miao/master/install.sh |
 | 修改面板或定制内核 | [前端开发](frontend-rsbuild/README.md)、[内核维护](docs/kernel.md) |
 
 [官网与 FAQ](https://miao.vesein.dev) · [Miao 源码许可](LICENSE) · [内嵌内核来源与许可](docs/kernel.md#来源与许可)
+
+##
+Hysteria2直连机场 https://nachoneko.cc/#/register?code=7ofhHt8x
