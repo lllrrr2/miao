@@ -29,7 +29,7 @@ async function openRuleModal(user: ReturnType<typeof userEvent.setup>) {
 }
 
 async function openNodeTargets(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole('button', { name: '或指定节点出口' }))
+  await user.click(screen.getByRole('button', { name: '或指定一个节点' }))
   return screen.getByRole('radiogroup', { name: '指定节点' })
 }
 
@@ -56,9 +56,9 @@ describe('RulesCard', () => {
 
     const dialog = await openRuleModal(user)
     expect(dialog).toBeInTheDocument()
-    // 默认选中 域名后缀 + 代理
-    expect(screen.getByRole('radio', { name: /域名后缀/ })).toHaveAttribute('aria-checked', 'true')
-    expect(screen.getByRole('radio', { name: /^代理/ })).toHaveAttribute('aria-checked', 'true')
+    // 默认选中网站 + 代理
+    expect(screen.getByRole('radio', { name: /网站/ })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: /^走代理/ })).toHaveAttribute('aria-checked', 'true')
   })
 
   it('adds a rule through the modal form and closes on success', async () => {
@@ -67,8 +67,8 @@ describe('RulesCard', () => {
     renderCard({ onAddRule })
 
     await openRuleModal(user)
-    await user.click(screen.getByRole('radio', { name: /进程名/ }))
-    await user.click(screen.getByRole('radio', { name: /^直连/ }))
+    await user.click(screen.getByRole('radio', { name: /应用/ }))
+    await user.click(screen.getByRole('radio', { name: /^直接连接/ }))
     await user.type(screen.getByLabelText('规则值'), 'curl')
     await user.click(screen.getByRole('button', { name: '添加规则' }))
 
@@ -82,7 +82,7 @@ describe('RulesCard', () => {
     renderCard()
 
     await openRuleModal(user)
-    await user.click(screen.getByRole('radio', { name: /进程名/ }))
+    await user.click(screen.getByRole('radio', { name: /应用/ }))
     await user.click(screen.getByRole('button', { name: 'qBittorrent' }))
 
     expect(screen.getByLabelText('规则值')).toHaveValue('qbittorrent')
@@ -93,7 +93,7 @@ describe('RulesCard', () => {
     renderCard({ platform: 'windows' })
 
     await openRuleModal(user)
-    await user.click(screen.getByRole('radio', { name: /进程名/ }))
+    await user.click(screen.getByRole('radio', { name: /应用/ }))
     await user.click(screen.getByRole('button', { name: 'qBittorrent' }))
 
     expect(screen.getByLabelText('规则值')).toHaveValue('qbittorrent.exe')
@@ -109,17 +109,17 @@ describe('RulesCard', () => {
     expect(screen.getByLabelText('规则值')).toHaveValue('openai.com')
   })
 
-  it('previews the rule in plain language and as stored JSON', async () => {
+  it('previews the rule in plain language without exposing JSON', async () => {
     const user = userEvent.setup()
     renderCard()
 
     await openRuleModal(user)
-    expect(screen.getByText(/填写匹配值后/)).toBeInTheDocument()
+    expect(screen.getByText(/填写上方内容后/)).toBeInTheDocument()
 
     await user.type(screen.getByLabelText('规则值'), 'example.com')
 
-    expect(screen.getByText('凡是 域名以 example.com 结尾的站点 的连接 → 走代理')).toBeInTheDocument()
-    expect(screen.getByText('{"domain_suffix":"example.com","action":"route","outbound":"proxy"}')).toBeInTheDocument()
+    expect(screen.getByText('访问 example.com 及其子域名时，走代理。')).toBeInTheDocument()
+    expect(screen.queryByText('{"domain_suffix":"example.com","action":"route","outbound":"proxy"}')).not.toBeInTheDocument()
   })
 
   it('keeps the modal input when adding fails', async () => {
@@ -158,13 +158,32 @@ describe('RulesCard', () => {
     expect(screen.getByRole('button', { name: '添加规则' })).toBeDisabled()
   })
 
+  it('explains invalid website input before submission', async () => {
+    const user = userEvent.setup()
+    const onAddRule = rs.fn().mockResolvedValue(true)
+    renderCard({ onAddRule })
+
+    await openRuleModal(user)
+    await user.type(screen.getByLabelText('规则值'), 'https://example.com/path')
+
+    expect(screen.getByRole('alert')).toHaveTextContent('只填写域名或关键词')
+    expect(screen.getByRole('button', { name: '添加规则' })).toBeDisabled()
+    expect(onAddRule).not.toHaveBeenCalled()
+
+    await user.clear(screen.getByLabelText('规则值'))
+    await user.type(screen.getByLabelText('规则值'), 'example.com')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '添加规则' })).toBeEnabled()
+  })
+
   it('uses a select with a default value for the protocol field', async () => {
     const user = userEvent.setup()
     const onAddRule = rs.fn().mockResolvedValue(true)
     renderCard({ onAddRule })
 
     await openRuleModal(user)
-    await user.click(screen.getByRole('radio', { name: /嗅探协议/ }))
+    await user.click(screen.getByRole('radio', { name: /更多方式/ }))
+    await user.selectOptions(screen.getByLabelText('匹配方式'), 'protocol')
 
     const valueControl = screen.getByLabelText('规则值')
     expect(valueControl.tagName).toBe('SELECT')
@@ -179,8 +198,9 @@ describe('RulesCard', () => {
     renderCard()
 
     await openRuleModal(user)
-    await user.click(screen.getByRole('radio', { name: /嗅探协议/ }))
-    await user.click(screen.getByRole('radio', { name: /域名后缀/ }))
+    await user.click(screen.getByRole('radio', { name: /更多方式/ }))
+    await user.selectOptions(screen.getByLabelText('匹配方式'), 'protocol')
+    await user.click(screen.getByRole('radio', { name: /网站/ }))
 
     const valueControl = screen.getByLabelText('规则值')
     expect(valueControl.tagName).toBe('INPUT')
@@ -195,11 +215,12 @@ describe('RulesCard', () => {
     await user.type(screen.getByLabelText('规则值'), 'netflix.com')
 
     // 切到端口范围：域名的值不会被带过来（此前会把 netflix.com 留在端口范围下）
-    await user.click(screen.getByRole('radio', { name: /端口范围/ }))
+    await user.click(screen.getByRole('radio', { name: /更多方式/ }))
+    await user.selectOptions(screen.getByLabelText('匹配方式'), 'port_range')
     expect(screen.getByLabelText('规则值')).toHaveValue('')
 
     // 切回域名后缀：草稿还在
-    await user.click(screen.getByRole('radio', { name: /域名后缀/ }))
+    await user.click(screen.getByRole('radio', { name: /网站/ }))
     expect(screen.getByLabelText('规则值')).toHaveValue('netflix.com')
   })
 
@@ -226,7 +247,7 @@ describe('RulesCard', () => {
     await openNodeTargets(user)
     await user.click(screen.getByRole('radio', { name: /香港节点/ }))
     // 选中节点目标后提示节点失效风险
-    expect(screen.getByText(/节点日后消失/)).toBeInTheDocument()
+    expect(screen.getByText(/节点被删除或改名后/)).toBeInTheDocument()
 
     await user.type(screen.getByLabelText('规则值'), 'example.com')
     await user.click(screen.getByRole('button', { name: '添加规则' }))
@@ -256,14 +277,14 @@ describe('RulesCard', () => {
     })
 
     await openRuleModal(user)
-    expect(screen.getByRole('button', { name: '或指定节点出口' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: '或指定一个节点' })).toHaveAttribute('aria-expanded', 'false')
     expect(onTestNodes).not.toHaveBeenCalled()
 
     await openNodeTargets(user)
     expect(onTestNodes).toHaveBeenCalledTimes(1)
 
     // 同一次弹窗会话里重新折叠并展开，不重复启动一整批测速
-    const nodeTargetsToggle = screen.getByRole('button', { name: '或指定节点出口' })
+    const nodeTargetsToggle = screen.getByRole('button', { name: '或指定一个节点' })
     await user.click(nodeTargetsToggle)
     await user.click(nodeTargetsToggle)
     expect(onTestNodes).toHaveBeenCalledTimes(1)

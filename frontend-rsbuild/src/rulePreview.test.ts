@@ -3,22 +3,22 @@ import { ruleJsonPreview, rulePlainPreview } from './rulePreview'
 
 describe('rulePlainPreview', () => {
   it('describes process rules in plain language', () => {
-    expect(rulePlainPreview('process_name', 'curl', 'direct')).toBe('凡是 来自进程 curl 的连接 → 直连')
+    expect(rulePlainPreview('process_name', 'curl', 'direct')).toBe('应用 curl 发起连接时，直接连接。')
   })
 
   it('describes domain and node targets', () => {
     expect(rulePlainPreview('domain_suffix', 'example.com', '香港节点')).toBe(
-      '凡是 域名以 example.com 结尾的站点 的连接 → 走节点「香港节点」',
+      '访问 example.com 及其子域名时，使用节点「香港节点」。',
     )
     expect(rulePlainPreview('domain_keyword', 'google', 'proxy')).toBe(
-      '凡是 域名包含「google」的站点 的连接 → 走代理',
+      '访问域名包含「google」的网站时，走代理。',
     )
   })
 
   it('describes ports and reject', () => {
-    expect(rulePlainPreview('port', '443', 'reject')).toBe('凡是 目标端口为 443 的连接 → 拦截')
+    expect(rulePlainPreview('port', '443', 'reject')).toBe('连接目标端口 443 时，阻止连接。')
     expect(rulePlainPreview('port_range', '1000:2000', 'proxy')).toBe(
-      '凡是 目标端口在 1000:2000 区间 的连接 → 走代理',
+      '连接目标端口 1000:2000 时，走代理。',
     )
   })
 
