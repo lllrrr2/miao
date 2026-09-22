@@ -1,3 +1,5 @@
+/AGENTS.md
+.codex
 local.*
 # dependencies (bun install)
 node_modules
@@ -5,8 +7,8 @@ node_modules
 # output
 out
 dist
-public/index.html
-public/icon.svg
+# rsbuild 构建产物（被 include_str!/include_bytes! 嵌进 core，CI 以 frontend artifact 传递）
+/public/
 *.tgz
 
 # code coverage
@@ -40,6 +42,11 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Added by cargo
 
 /target
+desktop/src-tauri/gen
 
 # Embedded binaries (downloaded during CI build)
-/embedded/sing-box-*
+/embedded/*
+
+# Local release artifacts (CI builds them on runners)
+/miao-windows-amd64*
+/miao-rust-linux-*

@@ -1,0 +1,251 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useToast, useApi } from './useApi'
+import { useStatus, useSubs, useNodes, useRules, useVersion } from './useResources'
+import { useProxies, useTraffic, useConnections, useDelays, isClashProxyGroup } from './useClash'
+import { usePolling, type PollTask } from './usePolling'
+import { useDesktopLayout } from './useDesktopLayout'
+import {
+  CLASH_API_BASE,
+  CONFIG_POLL_INTERVAL,
+  EMPTY_NODE_FORM,
+  nodeTypeDefaults,
+  STATUS_FAILURE_THRESHOLD,
+  type NodeForm,
+} from '../utils'
+import type { NodeType } from '../types/api'
+
+/** 确认对话框状态（ConfirmModal 的受控数据源） */
+export interface ConfirmState {
+  open: boolean
+  title: string
+  message: string
+  onConfirm: (() => void) | null
+}
+
+export function useAppData() {
+  const [upgrading, setUpgrading] = useState(false)
+  const [nodeForm, setNodeForm] = useState<NodeForm>(EMPTY_NODE_FORM)
+  const [nodeType, setNodeType] = useState<NodeType>('hysteria2')
+  const [showNodeModal, setShowNodeModal] = useState(false)
+  const [showConnectionsModal, setShowConnectionsModal] = useState(false)
+  const [confirmState, setConfirmState] = useState<ConfirmState>({ open: false, title: '', message: '', onConfirm: null })
+  const [switchingNode, setSwitchingNode] = useState('')
+
+  const isDesktop = useDesktopLayout()
+  const clashApiBase = CLASH_API_BASE
+
+  const { toasts, showToast, dismissToast } = useToast()
+  const { status, statusLoaded, statusFailures, statusSettled, fetchStatus } = useStatus()
+  const { subs, subsLoaded, subsAvailable, subsError, fetchSubs } = useSubs()
+  const { nodes, nodesLoaded, nodesAvailable, nodesError, fetchNodes } = useNodes()
+  const { rules, rulesLoaded, rulesError, fetchRules } = useRules()
+  const { proxies, primaryGroupName, primaryGroup, fetchProxies } = useProxies(status)
+
+  const refreshAfterUncertainWrite = useCallback(() => {
+    void Promise.allSettled([fetchStatus(), fetchSubs(), fetchNodes(), fetchRules(), fetchProxies()])
+  }, [fetchStatus, fetchSubs, fetchNodes, fetchRules, fetchProxies])
+  const { apiCall, pendingActions } = useApi(refreshAfterUncertainWrite)
+
+  // 节点名 → 协议类型（Clash API 的 type，如 Hysteria2/AnyTLS/VLESS）；分组项不入图
+  const nodeProtocols = useMemo(() => {
+    const map: Record<string, string> = {}
+    Object.entries(proxies || {}).forEach(([name, proxy]) => {
+      if (proxy?.type && !isClashProxyGroup(proxy.type)) map[name] = proxy.type
+    })
+    return map
+  }, [proxies])
+
+  // 规则「指定节点」下拉的候选:手动节点(服务停止时也在) ∪ 运行时全部 outbound
+  // 与后端 known_rule_targets 同口径(排除内置 proxy/direct 与分组项),不随 fastest_* 地区过滤收缩
+  const ruleNodeNames = useMemo(() => {
+    const names = new Set<string>(nodes.map((node) => node.tag))
+    Object.entries(proxies || {}).forEach(([name, proxy]) => {
+      if (name !== 'proxy' && name !== 'direct' && !isClashProxyGroup(proxy?.type)) {
+        names.add(name)
+      }
+    })
+    return [...names]
+  }, [nodes, proxies])
+  const { traffic, closeSockets } = useTraffic(status)
+  const {
+    connectionsInfo,
+    connectionsLoading,
+    connectionsError,
+    fetchConnections,
+  } = useConnections(status, clashApiBase)
+  const { versionInfo, fetchVersion } = useVersion()
+  const { delays, delayMeasuredAt, testingNodes, testingGroup, testDelay, testGroupDelays, clearDelays } = useDelays()
+
+  // 进入首页且当前节点就绪后,自动测一次延迟;切换节点后也会测新节点。
+  // 每个节点每次会话只自动测一次,手动点测不受影响。
+  // fastest 模式(primaryGroup 为 URLTest)例外:Clash API 的单节点测延迟会让
+  // sing-box 对所在 urltest 组立即 PerformUpdateCheck——新鲜测量值与组内
+  // 陈旧历史一比较就会换节点,面板打开几秒内连换数次。该模式延迟改读 history。
+  const autoTestedNodeRef = useRef('')
+  const currentNodeName = primaryGroup?.now || ''
+  const isUrlTestGroup = primaryGroup?.type === 'URLTest'
+  useEffect(() => {
+    if (!status.ready || status.initializing || !currentNodeName || isUrlTestGroup) return
+    if (currentNodeName === autoTestedNodeRef.current) return
+    autoTestedNodeRef.current = currentNodeName
+    testDelay(clashApiBase, currentNodeName)
+  }, [status.ready, status.initializing, currentNodeName, isUrlTestGroup, clashApiBase, testDelay])
+
+  // fastest(urltest) 模式的延迟展示回落到 /proxies 自带的 urltest 周期测速
+  // history(每轮 fetchProxies 自动刷新);手动点测结果优先显示——它与 history
+  // 同源(sing-box 测完即写回),下一轮轮询即收敛。
+  const displayMeasurements = useMemo(() => {
+    const map = { ...delays }
+    const measuredAt = { ...delayMeasuredAt }
+    if (!isUrlTestGroup) return { delays: map, measuredAt }
+    Object.entries(proxies || {}).forEach(([name, proxy]) => {
+      if (isClashProxyGroup(proxy?.type)) return
+      const history = proxy?.history?.length ? proxy.history.reduce((latest, item) =>
+        Date.parse(item.time) > Date.parse(latest.time) ? item : latest) : undefined
+      if (history?.delay && (!(name in map) || Date.parse(history.time) > (delayMeasuredAt[name] ?? 0))) {
+        map[name] = history.delay
+        measuredAt[name] = Date.parse(history.time)
+      }
+    })
+    return { delays: map, measuredAt }
+  }, [proxies, isUrlTestGroup, delays, delayMeasuredAt])
+
+  const resetNodeForm = useCallback(() => {
+    setNodeType('hysteria2')
+    setNodeForm({ ...EMPTY_NODE_FORM, ...nodeTypeDefaults('hysteria2') })
+  }, [])
+
+  // A later successful read can complete startup even if the first request
+  // failed. The polling hooks own initial reads as well as subsequent refreshes.
+  const firstLoadDone = statusSettled && (!statusLoaded || (subsLoaded && nodesLoaded && rulesLoaded))
+
+  // 连续失败达到阈值视为后端不可达：面板显示断线提示，且不再按空数据误判进入引导页
+  const backendUnreachable = statusFailures >= STATUS_FAILURE_THRESHOLD
+
+  const needsOnboarding = firstLoadDone
+    && statusLoaded
+    && !backendUnreachable
+    && !status.initializing
+    && !status.ready
+    && subsAvailable && nodesAvailable
+    && !subsError && !nodesError && !rulesError
+    && subs.length === 0
+    && nodes.length === 0
+
+  const pollingTasks = useMemo<PollTask[]>(() => {
+    const tasks: PollTask[] = [fetchStatus]
+    if (status.ready) {
+      tasks.push(fetchProxies)
+    }
+    return tasks
+  }, [fetchStatus, fetchProxies, status.ready])
+
+  // ready 由 false 变为 true 时立即补取 Clash 数据，不能等下一轮常规轮询；
+  // 这样后端提前展示面板后，数据面一就绪节点列表就会立刻出现。
+  useEffect(() => {
+    if (status.ready) fetchProxies()
+  }, [status.ready, fetchProxies])
+
+  const connectionPollingTasks = useMemo(() => [fetchConnections], [fetchConnections])
+
+  const configTasks = useMemo(() => [fetchSubs, fetchNodes, fetchRules], [fetchSubs, fetchNodes, fetchRules])
+  const lastRevision = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    if (!statusLoaded) return
+    const revision = status.data_revision ?? 0
+    if (lastRevision.current !== undefined && lastRevision.current !== revision) {
+      configTasks.forEach(task => { void task() })
+    }
+    lastRevision.current = revision
+  }, [statusLoaded, status.data_revision, configTasks])
+
+  usePolling(configTasks, statusLoaded, CONFIG_POLL_INTERVAL)
+  usePolling(pollingTasks)
+  usePolling(
+    connectionPollingTasks,
+    Boolean(status.ready) && (showConnectionsModal || isDesktop || rules.length > 0),
+  )
+
+  useEffect(() => {
+    fetchVersion()
+  }, [fetchVersion])
+
+  useEffect(() => {
+    return () => closeSockets()
+  }, [closeSockets])
+
+  useEffect(() => {
+    if (status.warning) {
+      showToast(status.warning, 'error')
+    }
+  }, [status.warning, showToast])
+
+  useEffect(() => {
+    if (!status.ready) {
+      clearDelays()
+    }
+  }, [status.ready, clearDelays])
+
+  useEffect(() => {
+    if (!isDesktop) setShowConnectionsModal(false)
+  }, [isDesktop])
+
+  return {
+    firstLoadDone,
+    pendingActions,
+    upgrading,
+    setUpgrading,
+    nodeForm,
+    setNodeForm,
+    nodeType,
+    setNodeType,
+    showNodeModal,
+    setShowNodeModal,
+    showConnectionsModal,
+    setShowConnectionsModal,
+    confirmState,
+    setConfirmState,
+    switchingNode,
+    setSwitchingNode,
+    isDesktop,
+    clashApiBase,
+    toasts,
+    showToast,
+    dismissToast,
+    apiCall,
+    status,
+    statusLoaded,
+    backendUnreachable,
+    fetchStatus,
+    subs,
+    subsError,
+    fetchSubs,
+    nodes,
+    nodesError,
+    fetchNodes,
+    rules,
+    rulesError,
+    fetchRules,
+    primaryGroupName,
+    primaryGroup,
+    fetchProxies,
+    ruleNodeNames,
+    nodeProtocols,
+    traffic,
+    connectionsInfo,
+    connectionsLoading,
+    connectionsError,
+    fetchConnections,
+    versionInfo,
+    fetchVersion,
+    delays: displayMeasurements.delays,
+    delayMeasuredAt: displayMeasurements.measuredAt,
+    testingNodes,
+    testingGroup,
+    testDelay,
+    testGroupDelays,
+    clearDelays,
+    resetNodeForm,
+    needsOnboarding,
+  }
+}

@@ -1,0 +1,48 @@
+diff --git a/shadowaead/method.go b/shadowaead/method.go
+--- a/shadowaead/method.go
++++ b/shadowaead/method.go
+@@ -119,6 +119,20 @@ type clientConn struct {
+ 	shadowio.WriterInterface
+ }
+ 
++func (c *clientConn) CloseWrite() error {
++	writer, _ := N.UnwrapCountWriter(c.Conn, nil)
++	writeCloser, ok := N.UnwrapWriter(writer).(N.WriteCloser)
++	if !ok {
++		return c.Close()
++	}
++	if c.writer == nil {
++		if err := c.writeRequest(nil); err != nil {
++			return err
++		}
++	}
++	return writeCloser.CloseWrite()
++}
++
+ func (c *clientConn) writeRequest(payload []byte) error {
+ 	requestBuffer := buf.New()
+ 	requestBuffer.WriteRandom(c.method.keySaltLength)
+diff --git a/shadowaead_2022/method.go b/shadowaead_2022/method.go
+--- a/shadowaead_2022/method.go
++++ b/shadowaead_2022/method.go
+@@ -172,6 +172,20 @@ type clientConn struct {
+ 	shadowio.WriterInterface
+ }
+ 
++func (c *clientConn) CloseWrite() error {
++	writer, _ := N.UnwrapCountWriter(c.Conn, nil)
++	writeCloser, ok := N.UnwrapWriter(writer).(N.WriteCloser)
++	if !ok {
++		return c.Close()
++	}
++	if c.writer == nil {
++		if err := c.writeRequest(nil); err != nil {
++			return err
++		}
++	}
++	return writeCloser.CloseWrite()
++}
++
+ func (c *clientConn) writeRequest(payload []byte) error {
+ 	requestSalt := make([]byte, c.method.keySaltLength)
+ 	requestBuffer := buf.New()

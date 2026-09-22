@@ -1,0 +1,22 @@
+//! Panel-facing config/runtime warning copy. Keep these strings in one place
+//! so REST, MCP and startup recovery cannot drift.
+
+pub const REGION_FALLBACK: &str = "该地区没有可用节点，已切回手动选择";
+pub const ALL_SUBS_FAILED: &str = "所有订阅获取失败，请检查当前订阅";
+pub const ALL_SUBS_FAILED_KEEP_CACHE: &str =
+    "所有订阅获取失败，继续使用当前配置运行，网络恢复后将自动重试";
+pub const ALL_SUBS_FAILED_RETRY: &str = "所有订阅获取失败，网络恢复后将自动重试";
+pub const REFRESH_VALIDATION_FAILED: &str =
+    "订阅刷新后的配置校验失败，继续使用当前配置运行，稍后将自动重试";
+pub const REFRESH_FAILED_KEEP_CACHE: &str =
+    "订阅刷新失败，继续使用当前配置运行，网络恢复后将自动重试";
+pub const STARTUP_VALIDATION_RETRY: &str = "订阅配置校验失败，修复订阅后将自动重试";
+pub const DATA_PLANE_RETRYING: &str = "代理服务仍未就绪，正在后台自动重试";
+pub const SUBS_REFRESHING_MANUAL: &str = "订阅正在后台刷新，暂时使用手动节点";
+// Keep the interval in sync with runtime/startup.rs::SUBS_SLOW_RETRY_INTERVAL.
+pub const SUBS_RETRYING_SLOWLY: &str =
+    "订阅刷新失败，继续使用当前配置；已结束启动重试，每 30 分钟后台重试，也可手动刷新";
+pub const SUBS_NO_USABLE_KEEP_CACHE: &str =
+    "订阅已获取，但解析和筛选后没有可用节点；继续使用当前配置，请检查订阅内容或禁用设置，也可手动刷新";
+pub const NO_USABLE_MANUAL: &str = "没有可用的手动节点，请检查配置或添加节点";
+pub const NO_USABLE_SUBS: &str = "当前没有可用的订阅或手动节点，请检查订阅内容、禁用设置或添加节点";
