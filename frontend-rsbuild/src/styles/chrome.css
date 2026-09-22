@@ -334,11 +334,10 @@
 }
 /* 手动节点行无前导元素，文本顶边略显局促：补一档微距做光学调整（+4px）。
    布局与 .rule-row 同款网格：内容列自适应截断，协议徽章右对齐，各行徽章右缘形成一条垂直线。
-   列间距沿用 .list-row 基类的 gap（--space-2），徽章与删除按钮并非零间距。
-   窄屏无需像 .rule-row 那样在 520px 重排：徽章列是 auto 宽，协议名很短，不会挤压内容列。 */
+   徽章后分别放测速和删除按钮；窄屏由内容列截断长名称。 */
 .list-row.node-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto var(--size-icon-btn-sm);
+    grid-template-columns: minmax(0, 1fr) auto repeat(2, var(--size-icon-btn-sm));
     align-items: center;
     padding-left: calc(var(--space-3) + var(--space-0));
 }

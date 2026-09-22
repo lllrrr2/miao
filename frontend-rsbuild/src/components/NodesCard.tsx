@@ -1,23 +1,41 @@
 import { memo } from 'react'
-import { Plus, Server, Trash2 } from 'lucide-react'
+import { LoaderCircle, Plus, Server, Trash2, Zap } from 'lucide-react'
 import { ICON } from '../tokens'
 import { Button, SectionCard } from './ui'
-import { protocolTone, classNames } from '../utils'
+import { protocolTone, classNames, formatDelay } from '../utils'
 import type { NodeInfo } from '../types/api'
 
 interface NodeRowProps {
   node: NodeInfo
   onDelete: (tag: string) => void
   disabled: boolean
+  delay?: number
+  isTesting: boolean
+  testDisabled: boolean
+  onTestDelay: (tag: string) => void
 }
 
-const NodeRow = memo(function NodeRow({ node, onDelete, disabled }: NodeRowProps) {
+const NodeRow = memo(function NodeRow({ node, onDelete, disabled, delay, isTesting, testDisabled, onTestDelay }: NodeRowProps) {
   return (
     <div className="list-row node-row">
       <div className="list-row-content">
         <div className="list-row-title" title={node.tag}>{node.tag}</div>
+        {(isTesting || delay !== undefined) && (
+          <div className="list-row-meta" role="status">{isTesting ? '测速中…' : formatDelay(delay)}</div>
+        )}
       </div>
       <span className={classNames('badge', protocolTone(node.node_type))} title={node.node_type}>{node.node_type}</span>
+      <button
+        type="button"
+        className="icon-button subtle"
+        onClick={() => onTestDelay(node.tag)}
+        disabled={testDisabled || isTesting}
+        aria-label={`测试 ${node.tag} 延迟`}
+        aria-busy={isTesting || undefined}
+        title="测试延迟"
+      >
+        {isTesting ? <LoaderCircle size={ICON.xs} className="spin" /> : <Zap size={ICON.xs} />}
+      </button>
       <button
         className="icon-button subtle"
         onClick={() => onDelete(node.tag)}
@@ -33,11 +51,15 @@ const NodeRow = memo(function NodeRow({ node, onDelete, disabled }: NodeRowProps
 export interface NodesCardProps {
   nodes: NodeInfo[]
   isInitializing: boolean
+  isReady: boolean
+  delays: Record<string, number>
+  testingNodes: Record<string, boolean>
+  onTestDelay: (tag: string) => void
   onDeleteNode: (tag: string) => void
   onOpenAddNode: () => void
 }
 
-export function NodesCard({ nodes, isInitializing, onDeleteNode, onOpenAddNode }: NodesCardProps) {
+export function NodesCard({ nodes, isInitializing, isReady, delays, testingNodes, onTestDelay, onDeleteNode, onOpenAddNode }: NodesCardProps) {
   return (
     <SectionCard
       bodyClassName="panel-body-tight"
@@ -69,6 +91,10 @@ export function NodesCard({ nodes, isInitializing, onDeleteNode, onOpenAddNode }
               node={node}
               onDelete={onDeleteNode}
               disabled={isInitializing}
+              delay={delays[node.tag]}
+              isTesting={Boolean(testingNodes[node.tag])}
+              testDisabled={isInitializing || !isReady}
+              onTestDelay={onTestDelay}
             />
           ))}
       </div>

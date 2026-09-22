@@ -116,6 +116,10 @@ export function DashboardScreen({ app }: { app: ReturnType<typeof useAppControll
             <NodesCard
               nodes={app.nodes}
               isInitializing={app.status.initializing}
+              isReady={app.status.ready}
+              delays={app.delays}
+              testingNodes={app.testingNodes}
+              onTestDelay={app.handleTestDelay}
               onDeleteNode={app.handleOpenDeleteNodeConfirm}
               onOpenAddNode={app.openNodeModal}
             />

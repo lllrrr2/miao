@@ -14,6 +14,10 @@ function renderCard(props = {}) {
     <NodesCard
       nodes={nodes}
       isInitializing={false}
+      isReady={true}
+      delays={{}}
+      testingNodes={{}}
+      onTestDelay={rs.fn()}
       onDeleteNode={rs.fn()}
       onOpenAddNode={rs.fn()}
       {...props}
@@ -28,7 +32,7 @@ describe('NodesCard', () => {
     const rows = document.querySelectorAll('.list-row.node-row')
     expect(rows).toHaveLength(nodes.length)
     for (const row of rows) {
-      // 徽章必须是行的直接子元素：.node-row 的三列网格按直接子元素分列右对齐，
+      // 徽章必须是行的直接子元素：.node-row 的网格按直接子元素分列右对齐，
       // 塞回 .list-row-title 里徽章会退回紧跟文字左侧，各行右缘不再对齐。
       expect(row.querySelector(':scope > .badge')).not.toBeNull()
       expect(row.querySelector('.list-row-title .badge')).toBeNull()
@@ -59,5 +63,36 @@ describe('NodesCard', () => {
     renderCard({ nodes: [] })
 
     expect(screen.getByText('暂无手动节点')).toBeInTheDocument()
+  })
+
+  it('tests the selected tag without deleting it', async () => {
+    const user = userEvent.setup()
+    const onTestDelay = rs.fn()
+    const onDeleteNode = rs.fn()
+    renderCard({ onTestDelay, onDeleteNode })
+    await user.click(screen.getByRole('button', { name: '测试 vps-1 延迟' }))
+    expect(onTestDelay).toHaveBeenCalledExactlyOnceWith('vps-1')
+    expect(onDeleteNode).not.toHaveBeenCalled()
+  })
+
+  it('shows per-node results and blocks only the node being tested', () => {
+    renderCard({ delays: { 香港节点: 42, 'vps-1': -1 }, testingNodes: { 香港节点: true } })
+    expect(screen.getByRole('button', { name: '测试 香港节点 延迟' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '测试 香港节点 延迟' })).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getByRole('button', { name: '测试 vps-1 延迟' })).toBeEnabled()
+    expect(screen.getByText('测速中…')).toBeInTheDocument()
+    expect(screen.getByText('超时')).toBeInTheDocument()
+    expect(screen.queryByText('42 ms')).not.toBeInTheDocument()
+  })
+
+  it('shows measured latency', () => {
+    renderCard({ delays: { 'vps-1': 137 } })
+    expect(screen.getByRole('status')).toHaveTextContent('137 ms')
+  })
+
+  it.each([{ isReady: false }, { isInitializing: true }])('disables testing when unavailable: %j', (props) => {
+    renderCard(props)
+    expect(screen.getByRole('button', { name: '测试 香港节点 延迟' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '测试 vps-1 延迟' })).toBeDisabled()
   })
 })
