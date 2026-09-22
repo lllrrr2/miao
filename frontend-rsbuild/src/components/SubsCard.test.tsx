@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, rs } from '@rstest/core'
 import { SubsCard } from './SubsCard'
@@ -164,6 +164,29 @@ describe('SubsCard header actions', () => {
 })
 
 describe('SubsCard add modal', () => {
+  it('blocks repeated Enter submissions and keeps a reopened dialog when an older request completes', async () => {
+    const user = userEvent.setup()
+    let finish!: (success: boolean) => void
+    const onAddSub = rs.fn(() => new Promise<boolean>(resolve => { finish = resolve }))
+    renderCard({ onAddSub })
+    await user.click(screen.getByRole('button', { name: '添加' }))
+    const input = screen.getByLabelText('订阅链接')
+    await user.type(input, 'https://example.com/sub')
+    act(() => {
+      fireEvent.keyDown(input, { key: 'Enter' })
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+    expect(onAddSub).toHaveBeenCalledTimes(1)
+    expect(input).toBeDisabled()
+    expect(screen.getByRole('status')).toHaveTextContent('关闭窗口不会取消请求')
+    await user.click(screen.getByRole('button', { name: '关闭窗口' }))
+    await user.click(screen.getByRole('button', { name: '添加' }))
+    await act(async () => { finish(true) })
+    expect(screen.getByRole('dialog', { name: '添加订阅' })).toBeInTheDocument()
+    expect(screen.getByLabelText('订阅链接')).toHaveValue('')
+    expect(screen.getByLabelText('订阅链接')).toBeEnabled()
+  })
+
   it('opens the modal from the header button and submits the trimmed url', async () => {
     const user = userEvent.setup()
     const { props } = renderCard()
@@ -191,6 +214,8 @@ describe('SubsCard add modal', () => {
 
     expect(props.onAddSub).toHaveBeenCalled()
     expect(screen.getByRole('dialog', { name: '添加订阅' })).toBeInTheDocument()
+    expect(screen.getByLabelText('订阅链接')).toHaveValue('https://example.com/sub')
+    expect(screen.getByLabelText('订阅链接')).toBeEnabled()
   })
 
   it('disables submit while the input is empty', async () => {

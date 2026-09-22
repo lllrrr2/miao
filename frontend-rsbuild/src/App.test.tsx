@@ -230,8 +230,31 @@ describe('App onboarding integration', () => {
         body: JSON.stringify({ url: 'https://example.com/sub' }),
       }))
     })
-    expect(await screen.findByText('订阅已添加')).toBeInTheDocument()
+    expect(await screen.findByText('订阅地址已保存，请查看节点获取状态')).toBeInTheDocument()
     expect(await screen.findByText('订阅管理')).toBeInTheDocument()
+  })
+
+  it.each([
+    [{ added: 1, skipped: 2 }, '已新增 1 条订阅地址，跳过 2 条已有订阅。请查看节点获取状态。'],
+    [{ added: 0, skipped: 3 }, '已新增 0 条订阅地址，跳过 3 条已有订阅。请查看节点获取状态。'],
+    [null, '订阅导入请求已完成，请查看订阅列表和节点获取状态。'],
+  ])('reports import counts without guessing from the selection: %j', async (data, message) => {
+    rs.stubGlobal('fetch', rs.fn(async (input) => {
+      const url = String(input)
+      if (url === '/api/status') return jsonResponse({ success: true, data: statusMock() })
+      if (url === '/api/subs' || url === '/api/nodes' || url === '/api/rules') return jsonResponse({ success: true, data: [] })
+      if (url === '/api/version') return jsonResponse({ success: true, data: { current: '0.48.1', latest: null, has_update: false } })
+      if (url === '/api/import/clash-verge') return jsonResponse({ success: true, data: { found: true, items: [1, 2, 3].map(i => ({ name: `订阅 ${i}`, url: `https://example.com/sub${i}`, already_added: false })) } })
+      if (url === '/api/subs/batch') return jsonResponse({ success: true, data })
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+    stubMatchMedia()
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: '从 Clash Verge Rev 导入' }))
+    await user.click(await screen.findByRole('button', { name: '导入 3 条' }))
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(screen.queryByText('已导入 3 条订阅')).not.toBeInTheDocument()
   })
 
   it('auto-tests the current node delay once when the dashboard loads', async () => {

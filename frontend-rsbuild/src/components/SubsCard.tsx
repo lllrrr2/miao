@@ -1,4 +1,4 @@
-import { memo, useEffect, useId, useState } from 'react'
+import { memo, useEffect, useId, useRef, useState } from 'react'
 import { Check, CircleX, Clock, RefreshCw, Rss, Plus, Trash2, X } from 'lucide-react'
 import { ICON } from '../tokens'
 import { Button, SectionCard } from './ui'
@@ -83,18 +83,33 @@ function AddSubModal({ open, loading, onClose, onSubmit }: AddSubModalProps) {
   const titleId = useId()
   const dialogRef = useDialog(open, onClose)
   const [url, setUrl] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const inFlight = useRef(false)
+  const generation = useRef(0)
+  const busy = loading || submitting
 
   // 关闭后重新打开时回到空输入
   useEffect(() => {
-    if (!open) setUrl('')
+    if (!open) {
+      setUrl('')
+      generation.current++
+    }
   }, [open])
 
   if (!open) return null
 
   const submit = async () => {
     const trimmed = url.trim()
-    if (!trimmed) return
-    if (await onSubmit(trimmed)) onClose()
+    if (!trimmed || busy || inFlight.current) return
+    inFlight.current = true
+    setSubmitting(true)
+    const submittedGeneration = generation.current
+    try {
+      if (await onSubmit(trimmed) && submittedGeneration === generation.current) onClose()
+    } finally {
+      inFlight.current = false
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -120,6 +135,7 @@ function AddSubModal({ open, loading, onClose, onSubmit }: AddSubModalProps) {
         <div className="field add-sub-field">
           <input
             value={url}
+            disabled={busy}
             onChange={(event) => setUrl(event.target.value)}
             onKeyDown={(event) => event.key === 'Enter' && submit()}
             placeholder="粘贴订阅链接..."
@@ -127,14 +143,17 @@ function AddSubModal({ open, loading, onClose, onSubmit }: AddSubModalProps) {
             data-autofocus
           />
         </div>
+        <p className="list-row-meta subscription-feedback" role={busy ? 'status' : undefined}>
+          {busy ? '正在保存订阅并获取节点，请稍候。关闭窗口不会取消请求，请勿重复添加。' : '保存订阅地址不代表已有可用节点；添加后请查看订阅获取状态。'}
+        </p>
         <div className="modal-actions">
-          <Button tone="ghost" size="sm" onClick={onClose}>取消</Button>
+          <Button tone="ghost" size="sm" onClick={onClose}>{busy ? '关闭窗口' : '取消'}</Button>
           <Button
             tone="primary"
             size="sm"
             icon={<Plus size={ICON.xs} />}
-            loading={loading}
-            disabled={!url.trim()}
+            loading={busy}
+            disabled={!url.trim() || busy}
             onClick={submit}
           >
             添加

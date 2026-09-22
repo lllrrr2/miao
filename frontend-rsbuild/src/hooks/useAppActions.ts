@@ -213,20 +213,7 @@ export function useAppActions(data: AppData) {
       await apiCall('subs', { method: 'POST', body: JSON.stringify({ url: trimmed } satisfies SubRequest) }, 'addSub')
       clearDelays()
       await fetchSubs()
-      showToast('订阅已添加', 'success')
-      return true
-    } catch (error) {
-      showToast(errorMessage(error), 'error')
-      return false
-    }
-  }, [apiCall, clearDelays, fetchSubs, showToast])
-
-  const handleOnboardingAddSub = useCallback(async (url: string): Promise<boolean> => {
-    try {
-      await apiCall('subs', { method: 'POST', body: JSON.stringify({ url } satisfies SubRequest) }, 'addSub')
-      clearDelays()
-      await fetchSubs()
-      showToast('订阅已添加', 'success')
+      showToast('订阅地址已保存，请查看节点获取状态', 'success')
       return true
     } catch (error) {
       showToast(errorMessage(error), 'error')
@@ -253,7 +240,9 @@ export function useAppActions(data: AppData) {
       )
       clearDelays()
       await fetchSubs()
-      showToast(`已导入 ${response.data?.added ?? urls.length} 条订阅`, 'success')
+      showToast(response.data
+        ? `已新增 ${response.data.added} 条订阅地址，跳过 ${response.data.skipped} 条已有订阅。请查看节点获取状态。`
+        : '订阅导入请求已完成，请查看订阅列表和节点获取状态。', response.data?.added ? 'success' : 'info')
       return true
     } catch (error) {
       showToast(errorMessage(error), 'error')
@@ -524,7 +513,7 @@ export function useAppActions(data: AppData) {
     handleSetNodeSelect,
     handleSwitchProxy,
     handleAddSubscription,
-    handleOnboardingAddSub,
+    handleOnboardingAddSub: handleAddSubscription,
     scanClashVerge,
     importClashVergeSubs,
     handleRefreshSubscriptions,
