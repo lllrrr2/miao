@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Rss, X } from 'lucide-react'
 import { ICON } from '../tokens'
 import { useDialog } from '../hooks/useDialog'
+import { fetchJson } from '../hooks/request'
 import { classNames, maskSubscription, protocolTone } from '../utils'
 import type { ApiResponse, SubNodeInfo, SubNodesInfo, SubStatus } from '../types/api'
 
@@ -28,8 +29,7 @@ export function SubDetailModal({ sub, onClose, onToggleNode }: SubDetailModalPro
   const load = useCallback(async (url: string) => {
     const generation = ++loadGenerationRef.current
     try {
-      const response = await fetch('/api/subs/nodes')
-      const payload: ApiResponse<SubNodesInfo[]> = await response.json()
+      const payload = await fetchJson<ApiResponse<SubNodesInfo[]>>('/api/subs/nodes')
       if (generation !== loadGenerationRef.current) return
       if (payload.success && payload.data) {
         const group = payload.data.find((item) => item.url === url)

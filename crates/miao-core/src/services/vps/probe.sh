@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # common.sh has checked root, init system and prerequisites.
 CONFIG="/etc/hysteria/config.yaml"
 if [ ! -f "$CONFIG" ]; then

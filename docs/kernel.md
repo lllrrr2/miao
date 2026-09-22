@@ -73,6 +73,10 @@ testing 曾重写历史，固定 SHA 只能保证内容，不能保证对象永�
 
 上一固定点 `eb57d4f5` 的 Linux 隔离网络验收覆盖两个独立网络命名空间、本地 DNS/TCP/UDP/Shadowsocks、自动重定向与纯 GoTUN、Clash 连接/计数、连续重载和退出清理。本次连接 half-close 变更尚未重复该网络验收；发布前仍需重跑，并在 Windows/OpenWrt 真机及实际使用的节点传输上验证。
 
+2026-09-22 补验当前固定内核：两个独立 Linux 网络命名空间中，分别启用和关闭 `auto_redirect`，本地 DNS 劫持、direct/Shadowsocks TCP 256 KiB、UDP 64/8192/16000 B、Clash 连接链和流量计数、连续 5 次重载及退出清理均通过。三目标内嵌资源的清单及压缩前后哈希也已核对；未更换内核。
+
+额外的 half-close 验收**未全部通过**：本地服务在读到 EOF 后才回复，客户端 `shutdown(SHUT_WR)` 后 direct 能收到回复，但 Shadowsocks AEAD (`aes-128-gcm`) 链路收到零字节 EOF，两种 TUN 模式均可复现。当前依赖的 AEAD 包装没有提供 `CloseWrite`，不能将通用复制层的修复等同于该协议链路已支持半关闭；尚未做旧版本对照，不判定为本次升级回归。Windows/OpenWrt 真机及其他协议、传输仍待验收。
+
 ## 来源与许可
 
 上游 sing-box 使用 GPL-3.0-or-later，README 另有派生作品命名限制。定制内核使用独立名称并保留出处；对应源码由固定 SHA、本仓库补丁和构建文件共同确定。分发时保留上游许可及对应源码获取方式。

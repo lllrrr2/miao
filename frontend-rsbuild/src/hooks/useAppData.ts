@@ -35,12 +35,16 @@ export function useAppData() {
   const clashApiBase = CLASH_API_BASE
 
   const { toasts, showToast, dismissToast } = useToast()
-  const { apiCall, pendingActions } = useApi()
   const { status, statusLoaded, statusFailures, statusSettled, fetchStatus } = useStatus()
   const { subs, subsLoaded, subsAvailable, fetchSubs } = useSubs()
   const { nodes, nodesLoaded, nodesAvailable, fetchNodes } = useNodes()
   const { rules, rulesLoaded, fetchRules } = useRules()
   const { proxies, primaryGroupName, primaryGroup, fetchProxies } = useProxies(status)
+
+  const refreshAfterUncertainWrite = useCallback(() => {
+    void Promise.allSettled([fetchStatus(), fetchSubs(), fetchNodes(), fetchRules(), fetchProxies()])
+  }, [fetchStatus, fetchSubs, fetchNodes, fetchRules, fetchProxies])
+  const { apiCall, pendingActions } = useApi(refreshAfterUncertainWrite)
 
   // 节点名 → 协议类型（Clash API 的 type，如 Hysteria2/AnyTLS/VLESS）；分组项不入图
   const nodeProtocols = useMemo(() => {

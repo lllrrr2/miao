@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Clock, Plus, Trash2, X } from 'lucide-react'
 import { ICON } from '../tokens'
 import { useDialog } from '../hooks/useDialog'
+import { fetchJson } from '../hooks/request'
 import { Button } from './ui'
 import { classNames } from '../utils'
 import { formatNextRun, formatTimezoneLabel } from '../scheduleFormat'
@@ -37,8 +38,7 @@ export function ScheduleModal({ open, saving, onClose, onSave }: ScheduleModalPr
   const load = useCallback(async () => {
     const generation = ++generationRef.current
     try {
-      const response = await fetch('/api/scheduled-refresh')
-      const payload: ApiResponse<ScheduledRefreshStatus> = await response.json()
+      const payload = await fetchJson<ApiResponse<ScheduledRefreshStatus>>('/api/scheduled-refresh')
       if (generation !== generationRef.current) return
       if (payload.success && payload.data) {
         setStatus(payload.data)

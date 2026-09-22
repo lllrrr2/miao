@@ -1,11 +1,12 @@
 import { test, expect } from 'bun:test'
-import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
 const shellTest = test.skipIf(process.platform === 'win32')
 const preflight = readFileSync(new URL('../crates/miao-core/src/services/vps/common.sh', import.meta.url), 'utf8')
+const provision = readFileSync(new URL('../crates/miao-core/src/services/vps/provision.sh', import.meta.url), 'utf8')
 
 // Only the shared preflight runs here; all package/service commands are fakes.
 // Never run provisioning paths or a real package manager on the test host.
@@ -61,4 +62,153 @@ shellTest('VPS preflight rejects missing init before installation', () => {
   expect(result.status).not.toBe(0)
   expect(result.stderr).toContain('systemd 或 OpenRC')
   expect(calls).toBe('')
+})
+
+// Execute a path-rewritten copy of provision.sh. Every external/network/service
+// boundary is fake; only ordinary file operations happen, under this fixture.
+function provisionFixture({ init = 'systemd', fail = '', running = true, enabled = true, withUnit = true, existing = true } = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'miao-vps-provision-'))
+  const bin = join(root, 'mock-bin')
+  const state = join(root, 'state')
+  mkdirSync(bin)
+  mkdirSync(state)
+  mkdirSync(join(root, 'etc/hysteria'), { recursive: true })
+  mkdirSync(join(root, 'usr/local/bin'), { recursive: true })
+  mkdirSync(join(root, init === 'systemd' ? 'etc/systemd/system' : 'etc/init.d'), { recursive: true })
+  writeFileSync(join(root, 'etc/hysteria/config.yaml'), 'old-config\n')
+  writeFileSync(join(root, 'etc/hysteria/server.key'), 'old-key\n')
+  writeFileSync(join(root, 'usr/local/bin/hysteria'), 'old-binary\n')
+  const unit = join(root, init === 'systemd' ? 'etc/systemd/system/hysteria-server.service' : 'etc/init.d/hysteria-server')
+  if (withUnit) writeFileSync(unit, 'old-unit\n')
+  if (running) writeFileSync(join(state, 'running'), '')
+  if (enabled) writeFileSync(join(state, 'enabled'), '')
+  if (!existing) {
+    rmSync(join(root, 'etc/hysteria'), { recursive: true })
+    rmSync(join(root, 'usr/local/bin/hysteria'))
+    rmSync(unit, { force: true })
+  }
+  writeFileSync(join(state, 'fail'), fail)
+
+  const command = (name, body) => writeFileSync(join(bin, name), `#!/bin/sh\nset -eu\n${body}\n`, { mode: 0o700 })
+  command('curl', `out=''; while [ "$#" -gt 0 ]; do case "$1" in -o|-fsSLo) out="$2"; shift 2;; *hashes.txt) url=hash; shift;; *) shift;; esac; done
+[ "\${url:-}" = hash ] && printf 'good  build/hysteria-linux-amd64\\n' > "$out" || printf 'new-binary\\n' > "$out"`)
+  command('sha256sum', `printf 'good  %s\\n' "$1"`)
+  command('openssl', `
+[ "$(cat '${state}/fail')" = generate ] && exit 1
+key=''; crt=''; while [ "$#" -gt 0 ]; do case "$1" in -keyout) key="$2"; shift 2;; -out) crt="$2"; shift 2;; *) shift;; esac; done
+printf 'new-key\\n' > "$key"; printf 'new-cert\\n' > "$crt"`)
+  command('sleep', ':')
+  const serviceBody = init === 'systemd' ? `
+cmd="$1"; shift || true
+case "$cmd" in
+ is-active) [ -f '${state}/running' ];; is-enabled) [ -f '${state}/enabled' ];;
+ enable) touch '${state}/enabled';; disable) rm -f '${state}/enabled'; [ -f '${unit}' ];;
+ stop) rm -f '${state}/running'; [ -f '${unit}' ];;
+ restart) n=$(cat '${state}/restarts' 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > '${state}/restarts'; [ "$(cat '${state}/fail')" != restore ] || exit 1; if [ "$(cat '${state}/fail')" = activate ] && [ ! -f '${state}/reloads' ] && [ "$n" -eq 1 ]; then exit 1; fi; touch '${state}/running';;
+ daemon-reload) n=$(cat '${state}/reloads' 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > '${state}/reloads'; [ "$(cat '${state}/fail'):$n" != activate:1 ];;
+esac` : `
+cmd="$2"
+case "$cmd" in
+ status) [ -f '${state}/running' ];; stop) rm -f '${state}/running'; [ -f '${unit}' ];;
+ restart) n=$(cat '${state}/restarts' 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > '${state}/restarts'; case "$(cat '${state}/fail'):$n" in activate:1|restore:*) exit 1;; esac; touch '${state}/running';;
+esac`
+  command(init === 'systemd' ? 'systemctl' : 'rc-service', serviceBody)
+  command('rc-update', `
+case "$1" in show) [ -f '${state}/enabled' ] && echo ' hysteria-server ';; add) touch '${state}/enabled';; del) rm -f '${state}/enabled'; [ -f '${unit}' ];; esac`)
+
+  const rewritten = provision
+    .replaceAll('/etc/hysteria', join(root, 'etc/hysteria'))
+    .replaceAll('/usr/local/bin', join(root, 'usr/local/bin'))
+    .replaceAll('/etc/systemd/system/hysteria-server.service', join(root, 'etc/systemd/system/hysteria-server.service'))
+    .replaceAll('/etc/init.d/hysteria-server', join(root, 'etc/init.d/hysteria-server'))
+    .replaceAll('/tmp/miao-hysteria-backup.', `${root}/backup.`)
+  const prefix = `set -eu
+MIAO_INIT='${init}'; HYSTERIA_ARCH=amd64; SERVICE=hysteria-server; PASSWORD=p; OBFS_PASSWORD=o
+miao_fail() { echo "MIAO_ERROR: $*" >&2; exit 1; }
+miao_stop() { if [ "$MIAO_INIT" = systemd ]; then systemctl stop "$SERVICE"; else rc-service "$SERVICE" stop; fi; }
+miao_disable() { if [ "$MIAO_INIT" = systemd ]; then systemctl disable "$SERVICE"; else rc-update del "$SERVICE" default; fi; }
+miao_is_running() { if [ "$MIAO_INIT" = systemd ]; then systemctl is-active --quiet "$SERVICE"; else rc-service "$SERVICE" status >/dev/null 2>&1; fi; }
+miao_is_enabled() { if [ "$MIAO_INIT" = systemd ]; then systemctl is-enabled --quiet "$SERVICE"; else rc-update show default | grep -q hysteria-server; fi; }
+miao_reload_init() { [ "$MIAO_INIT" != systemd ] || systemctl daemon-reload; }
+`
+  const result = spawnSync('/bin/sh', ['-s'], { input: prefix + rewritten, env: { PATH: `${bin}:/usr/bin:/bin`, TMPDIR: root }, encoding: 'utf8', timeout: 5000 })
+  return { root, state, unit, result, cleanup: () => rmSync(root, { recursive: true, force: true }) }
+}
+
+function contents(path) { return readFileSync(path, 'utf8') }
+
+shellTest('generation failure leaves the old deployment and service untouched', () => {
+  const f = provisionFixture({ fail: 'generate' })
+  try {
+    expect(f.result.signal, f.result.stderr).toBeNull()
+    expect(f.result.status).not.toBe(0)
+    expect(contents(join(f.root, 'etc/hysteria/config.yaml'))).toBe('old-config\n')
+    expect(contents(join(f.root, 'usr/local/bin/hysteria'))).toBe('old-binary\n')
+    expect(contents(f.unit)).toBe('old-unit\n')
+    expect(existsSync(join(f.state, 'running'))).toBe(true)
+  } finally { f.cleanup() }
+})
+
+for (const init of ['systemd', 'openrc']) shellTest(`${init} activation failure restores files and state`, () => {
+  const f = provisionFixture({ init, fail: 'activate', running: true, enabled: true })
+  try {
+    expect(f.result.status).not.toBe(0)
+    expect(f.result.stderr).toContain('已恢复旧部署及服务状态')
+    expect(contents(join(f.root, 'etc/hysteria/config.yaml'))).toBe('old-config\n')
+    expect(contents(join(f.root, 'usr/local/bin/hysteria'))).toBe('old-binary\n')
+    expect(contents(f.unit)).toBe('old-unit\n')
+    expect(existsSync(join(f.state, 'running'))).toBe(true)
+    expect(existsSync(join(f.state, 'enabled'))).toBe(true)
+  } finally { f.cleanup() }
+})
+
+shellTest('rollback preserves an originally stopped/disabled partial deployment', () => {
+  const f = provisionFixture({ fail: 'activate', running: false, enabled: false, withUnit: false })
+  try {
+    expect(f.result.status).not.toBe(0)
+    expect(f.result.stderr).toContain('已恢复旧部署及服务状态')
+    expect(contents(join(f.root, 'etc/hysteria/config.yaml'))).toBe('old-config\n')
+    expect(contents(join(f.root, 'usr/local/bin/hysteria'))).toBe('old-binary\n')
+    expect(existsSync(f.unit)).toBe(false)
+    expect(existsSync(join(f.state, 'running'))).toBe(false)
+    expect(existsSync(join(f.state, 'enabled'))).toBe(false)
+  } finally { f.cleanup() }
+})
+
+shellTest('failed first installation restores the absence of a deployment', () => {
+  const f = provisionFixture({ fail: 'activate', running: false, enabled: false, existing: false })
+  try {
+    expect(f.result.status).not.toBe(0)
+    expect(f.result.stderr).toContain('已恢复旧部署及服务状态')
+    expect(existsSync(join(f.root, 'etc/hysteria'))).toBe(false)
+    expect(existsSync(join(f.root, 'usr/local/bin/hysteria'))).toBe(false)
+    expect(existsSync(f.unit)).toBe(false)
+    expect(existsSync(join(f.state, 'running'))).toBe(false)
+    expect(existsSync(join(f.state, 'enabled'))).toBe(false)
+  } finally { f.cleanup() }
+})
+
+shellTest('successful activation starts and enables the requested new deployment', () => {
+  const f = provisionFixture({ running: false, enabled: false, withUnit: false })
+  try {
+    expect(f.result.status).toBe(0)
+    expect(contents(join(f.root, 'usr/local/bin/hysteria'))).toBe('new-binary\n')
+    expect(contents(join(f.root, 'etc/hysteria/server.key'))).toBe('new-key\n')
+    expect(contents(f.unit)).toContain('ExecStart=')
+    expect(existsSync(join(f.state, 'running'))).toBe(true)
+    expect(existsSync(join(f.state, 'enabled'))).toBe(true)
+  } finally { f.cleanup() }
+})
+
+shellTest('rollback failure retains backup and reports its real path', () => {
+  const f = provisionFixture({ fail: 'restore' })
+  try {
+    expect(f.result.status).not.toBe(0)
+    expect(f.result.stderr).toContain('恢复旧部署失败；备份保留在')
+    const backup = f.result.stderr.match(/备份保留在 ([^，]+)/)?.[1]
+    expect(backup).toBeTruthy()
+    expect(existsSync(backup)).toBe(true)
+    expect(contents(join(backup, 'config/config.yaml'))).toBe('old-config\n')
+    expect(contents(join(backup, 'binary'))).toBe('old-binary\n')
+  } finally { f.cleanup() }
 })

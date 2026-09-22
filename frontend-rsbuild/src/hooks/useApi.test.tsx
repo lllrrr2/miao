@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, rs } from '@rstest/core'
 import { useApi } from './useApi'
+import { WRITE_TIMEOUT_MS } from './request'
 
 function deferredResponse() {
   let resolve!: (response: Response) => void
@@ -19,7 +20,36 @@ function successResponse(): Response {
 
 describe('useApi pending actions', () => {
   afterEach(() => {
+    rs.useRealTimers()
     rs.unstubAllGlobals()
+  })
+
+  it('bounds a hanging response body, releases pending and reconciles without retrying the write', async () => {
+    rs.useFakeTimers()
+    const reconcile = rs.fn()
+    const fetchMock = rs.fn(async () => ({ ok: true, json: () => new Promise(() => {}) }))
+    rs.stubGlobal('fetch', fetchMock)
+    const { result } = renderHook(() => useApi(reconcile))
+    let outcome!: Promise<unknown>
+    act(() => {
+      outcome = result.current.apiCall('nodes', { method: 'POST' }, 'saveNode').catch(error => error)
+    })
+    await act(async () => { await rs.advanceTimersByTimeAsync(WRITE_TIMEOUT_MS - 1) })
+    expect(result.current.pendingActions.has('saveNode')).toBe(true)
+    await act(async () => { await rs.advanceTimersByTimeAsync(1) })
+    expect((await outcome as Error).message).toContain('操作结果未知')
+    expect(result.current.pendingActions.size).toBe(0)
+    expect(reconcile).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves a server rejection message and clears pending', async () => {
+    rs.stubGlobal('fetch', rs.fn(async () => new Response(JSON.stringify({ success: false, message: '节点不可用' }), { status: 400 })))
+    const { result } = renderHook(() => useApi())
+    await act(async () => {
+      await expect(result.current.apiCall('nodes', { method: 'POST' }, 'saveNode')).rejects.toThrow('节点不可用')
+    })
+    expect(result.current.pendingActions.size).toBe(0)
   })
 
   it('tracks different actions independently', async () => {

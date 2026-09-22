@@ -8,9 +8,9 @@ use tracing::{error, info, warn};
 use std::sync::Arc;
 
 use crate::error::{AppError, AppResult};
-use crate::models::{
-    Config, NodeMultiplier, NodeSelect, ScheduledRefresh, StableConfig, VolatileConfig,
-};
+#[cfg(test)]
+use crate::models::StableConfig;
+use crate::models::{Config, NodeMultiplier, NodeSelect, ScheduledRefresh, VolatileConfig};
 use crate::state::AppState;
 
 const CACHE_MANIFEST_VERSION: u32 = 1;
@@ -176,7 +176,7 @@ pub async fn save_node_select_preference(
     {
         return Ok(());
     }
-    write_file_atomic(path, content.as_bytes()).await
+    write_file_transactional(path, content.as_bytes()).await
 }
 
 /// 外层 Option 区分“偏好文件不存在/损坏”和“用户明确选择不限”。
@@ -204,11 +204,19 @@ pub async fn save_max_multiplier_preference(
     {
         return Ok(());
     }
-    write_file_atomic(path, content.as_bytes()).await
+    write_file_transactional(path, content.as_bytes()).await
 }
 
 /// 原子写入文件：先写入临时文件，再重命名为目标文件
 pub(crate) async fn write_file_atomic(path: &Path, content: &[u8]) -> AppResult<()> {
+    write_file_atomic_inner(path, content, false).await
+}
+
+async fn write_file_atomic_inner(
+    path: &Path,
+    content: &[u8],
+    #[cfg_attr(not(test), allow(unused_variables))] fail_directory_sync: bool,
+) -> AppResult<()> {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -248,11 +256,23 @@ pub(crate) async fn write_file_atomic(path: &Path, content: &[u8]) -> AppResult<
 
         #[cfg(unix)]
         {
+            #[cfg(test)]
+            if fail_directory_sync {
+                return Err(AppError::message(
+                    "File was replaced, but failed to sync config directory: injected failure",
+                ));
+            }
             let parent = parent.to_path_buf();
             tokio::task::spawn_blocking(move || std::fs::File::open(parent)?.sync_all())
                 .await
-                .map_err(|e| AppError::message(format!("Failed to join directory sync: {e}")))?
-                .map_err(|e| AppError::context("Failed to sync config directory", e))?;
+                .map_err(|e| {
+                    AppError::message(format!(
+                        "File was replaced, but failed to join directory sync: {e}"
+                    ))
+                })?
+                .map_err(|e| {
+                    AppError::context("File was replaced, but failed to sync config directory", e)
+                })?;
         }
         Ok(())
     }
@@ -263,7 +283,16 @@ pub(crate) async fn write_file_atomic(path: &Path, content: &[u8]) -> AppResult<
     result
 }
 
+#[cfg(test)]
 async fn save_yaml_to(path: &Path, value: &impl serde::Serialize) -> AppResult<()> {
+    save_yaml_to_inner(path, value, false).await
+}
+
+async fn save_yaml_to_inner(
+    path: &Path,
+    value: &impl serde::Serialize,
+    #[cfg_attr(not(test), allow(unused_variables))] fail_directory_sync: bool,
+) -> AppResult<()> {
     let yaml = yaml_serde::to_string(value)?;
     if let Ok(existing) = tokio::fs::read_to_string(path).await {
         if existing == yaml {
@@ -272,7 +301,43 @@ async fn save_yaml_to(path: &Path, value: &impl serde::Serialize) -> AppResult<(
         }
     }
 
-    write_file_atomic(path, yaml.as_bytes()).await
+    write_file_atomic_inner(path, yaml.as_bytes(), fail_directory_sync).await
+}
+
+async fn snapshot_file(path: &Path, label: &str) -> AppResult<Option<Vec<u8>>> {
+    match tokio::fs::read(path).await {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(AppError::context(
+            format!("Failed to snapshot {label}"),
+            err,
+        )),
+    }
+}
+
+async fn restore_file(path: &Path, snapshot: &Option<Vec<u8>>) -> AppResult<()> {
+    match snapshot {
+        Some(bytes) => write_file_atomic(path, bytes).await,
+        None => remove_file_durable(path).await,
+    }
+}
+
+/// A failed directory fsync may follow a successful rename. Restore the
+/// original destination before reporting any write failure.
+async fn write_file_transactional(path: &Path, content: &[u8]) -> AppResult<()> {
+    let old = snapshot_file(path, "file before save").await?;
+    if old.as_deref() == Some(content) {
+        return Ok(());
+    }
+    if let Err(write_err) = write_file_atomic(path, content).await {
+        return match restore_file(path, &old).await {
+            Ok(()) => Err(write_err),
+            Err(rollback_err) => Err(AppError::message(format!(
+                "{write_err}. File rollback also failed: {rollback_err}"
+            ))),
+        };
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -280,6 +345,7 @@ pub async fn save_config_to(path: &Path, config: &Config) -> AppResult<()> {
     save_stable_to(path, &StableConfig::from(config)).await
 }
 
+#[cfg(test)]
 pub async fn save_stable_to(path: &Path, config: &StableConfig) -> AppResult<()> {
     save_yaml_to(path, config).await
 }
@@ -291,6 +357,7 @@ pub async fn load_volatile_config_at(path: &Path) -> Option<VolatileConfig> {
     yaml_serde::from_str(&content).ok()
 }
 
+#[cfg(test)]
 pub async fn save_volatile_to(path: &Path, volatile: &VolatileConfig) -> AppResult<()> {
     save_yaml_to(path, volatile).await
 }
@@ -298,33 +365,94 @@ pub async fn save_volatile_to(path: &Path, volatile: &VolatileConfig) -> AppResu
 /// 配置分层落盘：稳定层（config.yaml）+ 易变层（volatile.yaml）。
 /// 两层各自原子写并按内容跳过未变写入——单一层面的变更只产生一层的 I/O。
 /// 跨文件无原子性：稳定层写成功而易变层失败时，把稳定层回写旧内容
-/// （best-effort 补偿），避免磁盘上留下从未在内存存在过的两层组合。
+/// 并准确报告补偿结果，避免把撕裂状态误报成普通写入失败。
 pub async fn save_config_layered(state: &Arc<AppState>, config: &Config) -> AppResult<()> {
-    // 补偿材料：稳定层旧字节（None = 文件原本不存在）
-    let old_stable = tokio::fs::read(&state.config_path).await.ok();
+    save_config_layered_inner(state, config, false, false, false).await
+}
+
+async fn save_config_layered_inner(
+    state: &Arc<AppState>,
+    config: &Config,
+    #[cfg_attr(not(test), allow(unused_variables))] fail_stable_sync: bool,
+    #[cfg_attr(not(test), allow(unused_variables))] fail_volatile_sync: bool,
+    #[cfg_attr(not(test), allow(unused_variables))] fail_rollback: bool,
+) -> AppResult<()> {
+    // Both snapshots must be available before either file can change.
+    let old_stable = snapshot_file(&state.config_path, "stable config before layered save").await?;
+    let old_volatile =
+        snapshot_file(&state.volatile_path, "volatile config before layered save").await?;
 
     let stable = state
         .stable_config
         .read()
         .await
         .with_stable_fields_from(config);
-    save_stable_to(&state.config_path, &stable).await?;
-    if let Err(err) = save_volatile_to(&state.volatile_path, &VolatileConfig::from(config)).await {
-        let restore = match &old_stable {
-            Some(bytes) => write_file_atomic(&state.config_path, bytes).await,
-            None => match tokio::fs::remove_file(&state.config_path).await {
-                Ok(()) => Ok(()),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                Err(e) => Err(AppError::context("Failed to remove stable config", e)),
-            },
-        };
-        if let Err(restore_err) = restore {
-            // 磁盘 I/O 故障下没有更好的选择：运行态已被调用方回滚，撕裂留待下次成功保存自愈
-            error!(error = %restore_err, "Failed to roll back stable config after volatile write failure");
+    let write_result = async {
+        save_yaml_to_inner(&state.config_path, &stable, fail_stable_sync).await?;
+        save_yaml_to_inner(
+            &state.volatile_path,
+            &VolatileConfig::from(config),
+            fail_volatile_sync,
+        )
+        .await
+    }
+    .await;
+    if let Err(write_err) = write_result {
+        let mut rollback_errors = Vec::new();
+        #[cfg(test)]
+        if fail_rollback {
+            rollback_errors.push("stable config: injected rollback failure".to_string());
+        } else if let Err(err) = restore_file(&state.config_path, &old_stable).await {
+            rollback_errors.push(format!("stable config: {err}"));
         }
-        return Err(err);
+        #[cfg(not(test))]
+        if let Err(err) = restore_file(&state.config_path, &old_stable).await {
+            rollback_errors.push(format!("stable config: {err}"));
+        }
+        if let Err(err) = restore_file(&state.volatile_path, &old_volatile).await {
+            rollback_errors.push(format!("volatile config: {err}"));
+        }
+        let message = if rollback_errors.is_empty() {
+            format!("Failed to save layered config: {write_err}; both config files were restored")
+        } else {
+            format!(
+                "Failed to save layered config: {write_err}. Rollback failures: {}",
+                rollback_errors.join("; ")
+            )
+        };
+        return Err(AppError::message(message));
     }
     *state.stable_config.write().await = stable;
+    Ok(())
+}
+
+async fn remove_file_durable(path: &Path) -> AppResult<()> {
+    match tokio::fs::remove_file(path).await {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(AppError::context("Failed to remove stable config", err)),
+    }
+    #[cfg(unix)]
+    {
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        tokio::task::spawn_blocking(move || std::fs::File::open(parent)?.sync_all())
+            .await
+            .map_err(|err| {
+                AppError::message(format!(
+                    "Stable config was removed, but failed to join directory sync: {err}"
+                ))
+            })?
+            .map_err(|err| {
+                AppError::context(
+                    "Stable config was removed, but failed to sync config directory",
+                    err,
+                )
+            })?;
+    }
     Ok(())
 }
 
@@ -336,7 +464,8 @@ pub async fn save_stable_fields(state: &Arc<AppState>, config: &Config) -> AppRe
         .read()
         .await
         .with_stable_fields_from(config);
-    save_stable_to(&state.config_path, &stable).await?;
+    let yaml = yaml_serde::to_string(&stable)?;
+    write_file_transactional(&state.config_path, yaml.as_bytes()).await?;
     *state.stable_config.write().await = stable;
     Ok(())
 }
@@ -351,7 +480,8 @@ pub async fn save_scheduled_refresh(
         .read()
         .await
         .with_scheduled_refresh(scheduled_refresh);
-    save_stable_to(&state.config_path, &stable).await?;
+    let yaml = yaml_serde::to_string(&stable)?;
+    write_file_transactional(&state.config_path, yaml.as_bytes()).await?;
     *state.stable_config.write().await = stable;
     Ok(())
 }
@@ -597,8 +727,9 @@ mod tests {
         load_max_multiplier_preference, load_node_select_preference, load_volatile_config_at,
         persist_effective_node_select, read_sub_nodes_snapshot_at, restore_config_from_cache_at,
         restore_runtime_config_bytes_at, save_config_cache_at, save_config_layered,
-        save_max_multiplier_preference, save_node_select_preference, save_sub_nodes_snapshot_at,
-        save_volatile_to, snapshot_runtime_config_at, SubNodesSnapshot,
+        save_config_layered_inner, save_max_multiplier_preference, save_node_select_preference,
+        save_sub_nodes_snapshot_at, save_volatile_to, snapshot_runtime_config_at,
+        write_file_atomic_inner, SubNodesSnapshot,
     };
     use crate::services::singbox::get_sing_box_home;
 
@@ -646,8 +777,51 @@ mod tests {
         let _ = tokio::fs::remove_dir_all(&temp_dir).await;
     }
 
+    #[cfg(unix)]
     #[tokio::test]
-    async fn save_config_layered_rolls_back_stable_on_volatile_failure() {
+    async fn atomic_write_reports_that_rename_committed_before_directory_sync_failure() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("state");
+        tokio::fs::write(&path, b"old").await.unwrap();
+
+        let err = write_file_atomic_inner(&path, b"new", true)
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("File was replaced"));
+        assert_eq!(tokio::fs::read(&path).await.unwrap(), b"new");
+    }
+
+    #[tokio::test]
+    async fn save_config_layered_does_not_treat_snapshot_read_failure_as_missing() {
+        use crate::models::Config;
+        use crate::state::AppState;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("config.yaml");
+        tokio::fs::create_dir(&config_path).await.unwrap();
+        let state = std::sync::Arc::new(
+            AppState::with_config_path(
+                Config::default(),
+                config_path.clone(),
+                temp_dir.path().join("volatile.yaml"),
+            )
+            .unwrap(),
+        );
+
+        let err = save_config_layered(&state, &Config::default())
+            .await
+            .unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("Failed to snapshot stable config before layered save"));
+        assert!(config_path.is_dir());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn save_config_layered_restores_both_files_and_memory_after_post_rename_failure() {
         use crate::models::{Config, NodeSelect, Region};
         use crate::state::AppState;
 
@@ -662,42 +836,120 @@ mod tests {
         tokio::fs::create_dir_all(&base).await.unwrap();
         let config_path = base.join("config.yaml");
         let volatile_path = base.join("volatile.yaml");
-        // 故障注入：volatile_path 是目录，写入必失败
-        tokio::fs::create_dir_all(&volatile_path).await.unwrap();
-
-        let make_state = || {
-            std::sync::Arc::new(
-                AppState::with_config_path(
-                    Config::default(),
-                    config_path.clone(),
-                    volatile_path.clone(),
-                )
-                .unwrap(),
-            )
-        };
+        let old_config = Config::default();
         let new_config = Config {
             subs: vec!["https://a.example.com".to_string()],
             node_select: NodeSelect::Fastest(Region::Hk),
             ..Config::default()
         };
 
-        // 情形 1：稳定层原本不存在 → 失败后仍不存在
-        let state = make_state();
-        assert!(save_config_layered(&state, &new_config).await.is_err());
-        assert!(
-            !config_path.exists(),
-            "stable layer should be rolled back (removed)"
-        );
-
-        // 情形 2：稳定层有旧内容 → 失败后旧内容逐字节保留
         let old_yaml = "subs:\n- https://old.example.com\n";
-        tokio::fs::write(&config_path, old_yaml).await.unwrap();
-        let state = make_state();
-        assert!(save_config_layered(&state, &new_config).await.is_err());
-        let after = tokio::fs::read_to_string(&config_path).await.unwrap();
-        assert_eq!(after, old_yaml, "stable layer should keep old bytes");
+        let old_volatile = "node_select: manual\nroute_mode: rule\n";
+        for (fail_stable, fail_volatile) in [(true, false), (false, true)] {
+            tokio::fs::write(&config_path, old_yaml).await.unwrap();
+            tokio::fs::write(&volatile_path, old_volatile)
+                .await
+                .unwrap();
+            let state = std::sync::Arc::new(
+                AppState::with_config_path(
+                    old_config.clone(),
+                    config_path.clone(),
+                    volatile_path.clone(),
+                )
+                .unwrap(),
+            );
+
+            let err =
+                save_config_layered_inner(&state, &new_config, fail_stable, fail_volatile, false)
+                    .await
+                    .unwrap_err();
+            assert!(err.to_string().contains("both config files were restored"));
+            assert_eq!(
+                tokio::fs::read(&config_path).await.unwrap(),
+                old_yaml.as_bytes()
+            );
+            assert_eq!(
+                tokio::fs::read(&volatile_path).await.unwrap(),
+                old_volatile.as_bytes()
+            );
+            assert_eq!(*state.config.read().await, old_config);
+            assert_eq!(
+                *state.stable_config.read().await,
+                crate::models::StableConfig::from(&old_config)
+            );
+        }
 
         let _ = tokio::fs::remove_dir_all(&base).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn layered_post_rename_failure_removes_previously_absent_files() {
+        for (fail_stable, fail_volatile) in [(true, false), (false, true)] {
+            let temp = tempfile::tempdir().unwrap();
+            let stable = temp.path().join("config.yaml");
+            let volatile = temp.path().join("volatile.yaml");
+            let state = std::sync::Arc::new(
+                crate::state::AppState::with_config_path(
+                    crate::models::Config::default(),
+                    stable.clone(),
+                    volatile.clone(),
+                )
+                .unwrap(),
+            );
+            let changed = crate::models::Config {
+                mcp: true,
+                ..crate::models::Config::default()
+            };
+            let error =
+                save_config_layered_inner(&state, &changed, fail_stable, fail_volatile, false)
+                    .await
+                    .unwrap_err();
+            assert!(error
+                .to_string()
+                .contains("both config files were restored"));
+            assert!(!stable.exists());
+            assert!(!volatile.exists());
+            assert!(!state.stable_config.read().await.mcp);
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn save_config_layered_reports_primary_and_rollback_failures() {
+        use crate::models::Config;
+        use crate::state::AppState;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("config.yaml");
+        let volatile_path = temp_dir.path().join("volatile.yaml");
+        tokio::fs::write(&config_path, b"mcp: false\n")
+            .await
+            .unwrap();
+        tokio::fs::write(&volatile_path, b"node_select: manual\n")
+            .await
+            .unwrap();
+        let state = std::sync::Arc::new(
+            AppState::with_config_path(Config::default(), config_path.clone(), volatile_path)
+                .unwrap(),
+        );
+        let changed = Config {
+            mcp: true,
+            ..Config::default()
+        };
+
+        let err = save_config_layered_inner(&state, &changed, false, true, true)
+            .await
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("Failed to save layered config"));
+        assert!(err.contains("Rollback failures: stable config"));
+        assert!(err.contains("injected rollback failure"));
+        assert_ne!(
+            tokio::fs::read(&config_path).await.unwrap(),
+            b"mcp: false\n"
+        );
     }
 
     #[cfg(unix)]

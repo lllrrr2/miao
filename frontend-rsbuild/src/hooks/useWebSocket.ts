@@ -54,7 +54,7 @@ export function useWebSocket<T = unknown>(url: string, onMessage: (data: T) => v
   }, [])
 
   const connect = useCallback(() => {
-    if (!enabledRef.current) return
+    if (!enabledRef.current || document.hidden) return
     if (wsRef.current && wsRef.current.readyState === WebSocket.CONNECTING) return
 
     cleanup()
@@ -82,7 +82,7 @@ export function useWebSocket<T = unknown>(url: string, onMessage: (data: T) => v
 
         // cleanup 会先移除 onclose，因此能走到这里的关闭都来自远端。
         // sing-box 重载可能正常关闭(code 1000)上游；只要功能仍启用就应重连。
-        if (!enabledRef.current) {
+        if (!enabledRef.current || document.hidden) {
           return
         }
 

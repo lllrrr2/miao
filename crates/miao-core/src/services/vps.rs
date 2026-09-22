@@ -527,16 +527,16 @@ mod tests {
     }
 
     #[test]
-    fn provision_script_cleans_up_before_reprovisioning() {
+    fn provision_script_prepares_and_backs_up_before_reprovisioning() {
         let script = remote_hysteria_script();
 
         assert!(script.contains("miao_stop >/dev/null"));
         assert!(script.contains("miao_disable >/dev/null"));
-        assert!(script.contains("pkill -x hysteria"));
+        assert!(script.contains("restore_old_deployment"));
         assert!(script.contains("rm -rf /etc/hysteria"));
         assert!(
             script.find("checksum mismatch").unwrap()
-                < script.find("rm -rf /etc/hysteria").unwrap()
+                < script.find("backup_one /etc/hysteria config").unwrap()
         );
         assert!(script.contains("-subj \"/CN=miao-hysteria\""));
     }

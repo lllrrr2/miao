@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # Shared POSIX shell preflight; works on minimal VPS images without bash.
 set -eu
 export LC_ALL=C
@@ -84,4 +85,24 @@ miao_start_checked() {
     fi
     miao_fail "Hysteria2 服务启动失败。请检查 543/UDP 端口占用、配置和服务日志。"
   fi
+}
+
+miao_is_running() {
+  if [ "$MIAO_INIT" = systemd ]; then
+    systemctl is-active --quiet "$SERVICE"
+  else
+    rc-service "$SERVICE" status >/dev/null 2>&1
+  fi
+}
+
+miao_is_enabled() {
+  if [ "$MIAO_INIT" = systemd ]; then
+    systemctl is-enabled --quiet "$SERVICE"
+  else
+    rc-update show default 2>/dev/null | grep -Eq "(^|[[:space:]])${SERVICE}([[:space:]]|$)"
+  fi
+}
+
+miao_reload_init() {
+  if [ "$MIAO_INIT" = systemd ]; then systemctl daemon-reload; fi
 }

@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { API_HEADERS } from '../utils'
 import type { ApiResponse } from '../types/api'
+import { fetchJson, RequestInterruptedError, WRITE_TIMEOUT_MS } from './request'
 
 const TOAST_DURATION = 3500
 
@@ -48,7 +49,7 @@ export function useToast() {
   return { toasts, showToast, dismissToast }
 }
 
-export function useApi() {
+export function useApi(onUncertain?: () => void) {
   const [pendingActions, setPendingActions] = useState<ReadonlySet<string>>(new Set())
   const pendingCountsRef = useRef(new Map<string, number>())
 
@@ -64,14 +65,21 @@ export function useApi() {
   const apiCall = useCallback(async <T = unknown>(endpoint: string, options: RequestInit = {}, action = ''): Promise<ApiResponse<T>> => {
     setActionPending(action, true)
     try {
-      const response = await fetch(`/api/${endpoint}`, { headers: API_HEADERS, ...options })
-      const payload: ApiResponse<T> = await response.json()
-      if (!response.ok || !payload.success) throw new Error(payload.message || '请求失败')
+      // VPS deployment can include package installation and two SSH operations.
+      const timeout = endpoint === 'vps/deploy' ? 600_000 : WRITE_TIMEOUT_MS
+      const payload = await fetchJson<ApiResponse<T>>(`/api/${endpoint}`, { headers: API_HEADERS, ...options }, timeout)
+      if (!payload.success) throw new Error(payload.message || '请求失败')
       return payload
+    } catch (error) {
+      if (error instanceof RequestInterruptedError) {
+        onUncertain?.()
+        throw new Error('请求已取消或超时，操作结果未知；请刷新状态确认，勿直接重复操作')
+      }
+      throw error
     } finally {
       setActionPending(action, false)
     }
-  }, [setActionPending])
+  }, [setActionPending, onUncertain])
 
   return { apiCall, pendingActions }
 }

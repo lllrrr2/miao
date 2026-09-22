@@ -1,4 +1,7 @@
 export const READ_TIMEOUT_MS = 10_000
+export const WRITE_TIMEOUT_MS = 120_000
+
+export class RequestInterruptedError extends Error {}
 
 /** Bound the complete read, including body parsing. Aborting or timing out
  * settles even if a transport adapter does not implement AbortSignal. */
@@ -8,7 +11,7 @@ export async function fetchJson<T>(url: string, options: RequestInit = {}, timeo
   const aborted = new Promise<never>((_, reject) => { rejectAbort = reject })
   const abort = () => {
     controller.abort()
-    rejectAbort(new Error('请求已取消或超时'))
+    rejectAbort(new RequestInterruptedError('请求已取消或超时'))
   }
   options.signal?.addEventListener('abort', abort, { once: true })
   const timer = window.setTimeout(abort, timeout)
@@ -17,7 +20,12 @@ export async function fetchJson<T>(url: string, options: RequestInit = {}, timeo
     return await Promise.race([
       (async () => {
         const response = await fetch(url, { ...options, signal: controller.signal })
-        if (!response.ok) throw new Error((await response.text()).trim() || `请求失败 (${response.status})`)
+        if (!response.ok) {
+          const body = (await response.text()).trim()
+          let message = body
+          try { message = JSON.parse(body).message || body } catch { /* plain-text response */ }
+          throw new Error(message || `请求失败 (${response.status})`)
+        }
         return await response.json() as T
       })(),
       aborted,

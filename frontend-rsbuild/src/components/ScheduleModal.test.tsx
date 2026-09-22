@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, rs } from '@rstest/core'
 import { ScheduleModal } from './ScheduleModal'
@@ -27,7 +27,23 @@ function renderModal(props = {}) {
 
 describe('ScheduleModal', () => {
   afterEach(() => {
+    rs.useRealTimers()
     rs.unstubAllGlobals()
+  })
+
+  it('leaves loading on timeout and can load again after reopening', async () => {
+    rs.useFakeTimers()
+    rs.stubGlobal('fetch', rs.fn(() => new Promise(() => {})))
+    const { rerender, onClose, onSave } = renderModal()
+    expect(screen.getByText('加载中…')).toBeInTheDocument()
+    await act(async () => { await rs.advanceTimersByTimeAsync(10_000) })
+    expect(screen.getByText('加载定时刷新设置失败')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+    rerender(<ScheduleModal open={false} saving={false} onClose={onClose} onSave={onSave} />)
+    stubStatus(scheduledRefreshStatusMock())
+    rerender(<ScheduleModal open saving={false} onClose={onClose} onSave={onSave} />)
+    await act(async () => { await rs.advanceTimersByTimeAsync(0) })
+    expect(screen.getByRole('switch', { name: '启用定时刷新' })).toBeInTheDocument()
   })
 
   it('renders nothing when closed', () => {

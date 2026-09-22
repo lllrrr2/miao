@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { CONNECTIONS_MODAL_MIN_WIDTH } from '../tokens'
 import { validateSubscriptionUrl } from '../utils'
 import { buildNodeRequest } from '../nodeForm'
+import { waitForUpgrade } from './upgrade'
 import type { useAppData } from './useAppData'
 import type {
   NodeRequest,
@@ -412,37 +413,22 @@ export function useAppActions(data: AppData) {
     }
 
     const targetVersion = versionInfo.latest
+    if (!targetVersion) return
     const currentVersion = versionInfo.current
     openConfirm('更新确认', `确定要从 ${currentVersion} 更新到 ${targetVersion} 吗？更新过程中服务会短暂中断。`, async () => {
       setUpgrading(true)
       try {
-        const response = await fetch('/api/upgrade', { method: 'POST' })
-        const payload = await response.json()
-        if (!payload.success) throw new Error(payload.message || '更新失败')
-        showToast('更新成功，等待服务重启…', 'success')
-        for (let index = 0; index < 30; index += 1) {
-          await new Promise((resolve) => window.setTimeout(resolve, 500))
-          try {
-            const ping = await fetch('/api/version')
-            if (ping.ok) {
-              const versionPayload = await ping.json()
-              if (versionPayload.success && versionPayload.data?.current !== currentVersion) {
-                window.location.reload()
-                return
-              }
-            }
-          } catch {
-            // ignore
-          }
-        }
-        showToast('服务重启超时，请手动刷新页面', 'error')
+        await apiCall('upgrade', { method: 'POST' })
+        showToast('升级请求已接受，等待目标版本启动…', 'info')
+        await waitForUpgrade(targetVersion, currentVersion)
+        window.location.reload()
       } catch (error) {
         showToast(errorMessage(error), 'error')
       } finally {
         setUpgrading(false)
       }
     })
-  }, [versionInfo, fetchVersion, showToast, openConfirm, setUpgrading])
+  }, [versionInfo, fetchVersion, showToast, openConfirm, setUpgrading, apiCall])
 
   const handleOpenDeleteNodeConfirm = useCallback((tag: string) => {
     openConfirm('删除节点', `确定要删除节点 "${tag}" 吗？`, () => handleDeleteNode(tag))

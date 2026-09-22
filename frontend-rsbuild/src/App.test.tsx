@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, rs } from '@rstest/core'
 import App from './App'
@@ -26,6 +26,35 @@ describe('App onboarding integration', () => {
   afterEach(() => {
     rs.useRealTimers()
     rs.unstubAllGlobals()
+  })
+
+  it('reports upgrade acceptance, then restores the button when only the old version returns', async () => {
+    rs.useFakeTimers()
+    let upgrades = 0
+    rs.stubGlobal('fetch', rs.fn(async (input) => {
+      const url = String(input)
+      if (url === '/api/status') return jsonResponse({ success: true, data: statusMock() })
+      if (url === '/api/subs') return jsonResponse({ success: true, data: [subMock()] })
+      if (url === '/api/nodes' || url === '/api/rules') return jsonResponse({ success: true, data: [] })
+      if (url === '/api/version') return jsonResponse({ success: true, data: {
+        current: '0.48.1', latest: 'v0.49.0', has_update: true, download_url: null, upgrade_supported: true,
+      } })
+      if (url === '/api/upgrade') { upgrades++; return jsonResponse({ success: true, message: 'accepted' }) }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+    stubMatchMedia()
+    render(<App />)
+    await act(async () => { await rs.advanceTimersByTimeAsync(0) })
+    fireEvent.click(screen.getByRole('button', { name: 'v0.49.0' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认' }))
+    await act(async () => { await rs.advanceTimersByTimeAsync(0) })
+    expect(screen.getByText('升级请求已接受，等待目标版本启动…')).toBeInTheDocument()
+    expect(screen.queryByText('更新成功，等待服务重启…')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'v0.49.0' })).toBeDisabled()
+    await act(async () => { await rs.advanceTimersByTimeAsync(30_000) })
+    expect(screen.getByText(/可能尚未重启或已回滚/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'v0.49.0' })).not.toBeDisabled()
+    expect(upgrades).toBe(1)
   })
 
   it('adds the first subscription and leaves onboarding', async () => {
