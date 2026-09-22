@@ -447,3 +447,118 @@ async fn stopping_service_cancels_a_refresh_without_waiting_for_subscription_htt
     assert!(!state.runtime_paths.active_config.exists());
     server.abort();
 }
+
+#[tokio::test]
+async fn failed_refresh_commit_preserves_local_edit_committed_during_fetch() {
+    use crate::models::RouteMode;
+    use axum::{routing::get, Router};
+    use tokio::{
+        sync::Notify,
+        time::{timeout, Duration},
+    };
+
+    let entered = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let (accepted, resume) = (entered.clone(), release.clone());
+    let app = Router::new().route("/sub", get(move || {
+        let (accepted, resume) = (accepted.clone(), resume.clone());
+        async move {
+            accepted.notify_one();
+            resume.notified().await;
+            "proxies:\n- {name: US-new, type: ss, server: example.com, port: 8388, cipher: aes-128-gcm, password: test}"
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/sub", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let (root, state, mut config) = refresh_commit_failure_fixture("concurrent-edit").await;
+    tokio::fs::remove_dir(&state.volatile_path).await.unwrap();
+    config.subs.push(url);
+    *state.config.write().await = config.clone();
+    *state.stable_config.write().await = StableConfig::from(&config);
+    state.lifecycle.request_running(false);
+    state
+        .lifecycle
+        .finish(state.lifecycle.snapshot().generation, RuntimePhase::Stopped);
+    let cloned = state.clone();
+    let refresh =
+        tokio::spawn(async move { super::refresh_subscriptions_foreground(&cloned).await });
+    timeout(Duration::from_secs(3), entered.notified())
+        .await
+        .unwrap();
+
+    // The fetch must not hold config_update. Commit a different route mode
+    // while it is paused, using only existing local node material.
+    timeout(
+        Duration::from_secs(3),
+        super::apply_route_mode(&state, RouteMode::Global),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let committed = state.config.read().await.clone();
+    assert_eq!(committed.route_mode, RouteMode::Global);
+    assert_eq!(committed.node_select, NodeSelect::Manual);
+    let runtime = tokio::fs::read(&state.runtime_paths.active_config)
+        .await
+        .unwrap();
+    let bindings = tokio::fs::read(&state.runtime_paths.node_bindings)
+        .await
+        .unwrap();
+    let stable = tokio::fs::read(&state.config_path).await.unwrap();
+    let cache = tokio::fs::read(&state.runtime_paths.config_cache)
+        .await
+        .unwrap();
+    let multipliers = state.available_multipliers.read().await.clone();
+    let warning = state.config_warning.lock().await.clone();
+
+    // The incoming US node restores the requested region, requiring an
+    // effective-selection write. Make that write fail after runtime install.
+    tokio::fs::remove_file(&state.volatile_path).await.unwrap();
+    tokio::fs::create_dir(&state.volatile_path).await.unwrap();
+    release.notify_one();
+    let error = timeout(Duration::from_secs(3), refresh)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err()
+        .to_string();
+    server.abort();
+    assert!(
+        error.contains("Failed to commit refreshed configuration"),
+        "{error}"
+    );
+    assert_eq!(*state.config.read().await, committed);
+    assert_eq!(
+        tokio::fs::read(&state.runtime_paths.active_config)
+            .await
+            .unwrap(),
+        runtime
+    );
+    assert_eq!(
+        tokio::fs::read(&state.runtime_paths.node_bindings)
+            .await
+            .unwrap(),
+        bindings
+    );
+    assert_eq!(tokio::fs::read(&state.config_path).await.unwrap(), stable);
+    assert_eq!(
+        tokio::fs::read(&state.runtime_paths.config_cache)
+            .await
+            .unwrap(),
+        cache
+    );
+    // Fetch status may advance data_revision; accepted runtime diagnostics
+    // must still describe the committed local edit, not the rejected candidate.
+    assert_eq!(*state.available_multipliers.read().await, multipliers);
+    assert_eq!(*state.config_warning.lock().await, warning);
+    assert_eq!(
+        state.sub_refresh_success_generation.load(Ordering::Relaxed),
+        0
+    );
+    assert!(state.sub_nodes_cache.read().await.is_none());
+    assert_eq!(state.lifecycle.snapshot().phase, RuntimePhase::Stopped);
+    assert!(!state.lifecycle.snapshot().should_run);
+    assert!(state.sing_process.lock().await.is_none());
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}

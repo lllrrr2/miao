@@ -129,18 +129,22 @@ miao_restart() {
 # already true. Verify the resulting state instead of treating that as a
 # failed rollback.
 restore_service_state() {
+  # Autostart and current availability are independent. An autostart failure
+  # must not prevent bringing the restored old deployment back online.
+  restore_failed=0
   if [ "$WAS_ENABLED" -eq 1 ]; then
-    miao_enable || return 1
+    miao_enable || restore_failed=1
   else
     miao_disable >/dev/null 2>&1 || true
-    if miao_is_enabled; then return 1; fi
+    if miao_is_enabled; then restore_failed=1; fi
   fi
   if [ "$WAS_RUNNING" -eq 1 ]; then
-    miao_restart || return 1
+    miao_restart || restore_failed=1
   else
     miao_stop >/dev/null 2>&1 || true
-    if miao_is_running; then return 1; fi
+    if miao_is_running; then restore_failed=1; fi
   fi
+  [ "$restore_failed" -eq 0 ]
 }
 
 # From this point onward every failure restores config, binary, init file and service state.

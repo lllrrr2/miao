@@ -102,7 +102,7 @@ printf 'new-key\\n' > "$key"; printf 'new-cert\\n' > "$crt"`)
 cmd="$1"; shift || true
 case "$cmd" in
  is-active) [ -f '${state}/running' ];; is-enabled) [ -f '${state}/enabled' ];;
- enable) touch '${state}/enabled';; disable) rm -f '${state}/enabled'; [ -f '${unit}' ];;
+ enable) [ "$(cat '${state}/fail')" != enable ] || exit 1; touch '${state}/enabled';; disable) rm -f '${state}/enabled'; [ -f '${unit}' ];;
  stop) rm -f '${state}/running'; [ -f '${unit}' ];;
  restart) n=$(cat '${state}/restarts' 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > '${state}/restarts'; [ "$(cat '${state}/fail')" != restore ] || exit 1; if [ "$(cat '${state}/fail')" = activate ] && [ ! -f '${state}/reloads' ] && [ "$n" -eq 1 ]; then exit 1; fi; touch '${state}/running';;
  daemon-reload) n=$(cat '${state}/reloads' 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > '${state}/reloads'; [ "$(cat '${state}/fail'):$n" != activate:1 ];;
@@ -114,7 +114,7 @@ case "$cmd" in
 esac`
   command(init === 'systemd' ? 'systemctl' : 'rc-service', serviceBody)
   command('rc-update', `
-case "$1" in show) [ -f '${state}/enabled' ] && echo ' hysteria-server ';; add) touch '${state}/enabled';; del) rm -f '${state}/enabled'; [ -f '${unit}' ];; esac`)
+case "$1" in show) [ -f '${state}/enabled' ] && echo ' hysteria-server ';; add) [ "$(cat '${state}/fail')" != enable ] || exit 1; touch '${state}/enabled';; del) rm -f '${state}/enabled'; [ -f '${unit}' ];; esac`)
 
   const rewritten = provision
     .replaceAll('/etc/hysteria', join(root, 'etc/hysteria'))
@@ -209,6 +209,22 @@ shellTest('rollback failure retains backup and reports its real path', () => {
     expect(backup).toBeTruthy()
     expect(existsSync(backup)).toBe(true)
     expect(contents(join(backup, 'config/config.yaml'))).toBe('old-config\n')
+    expect(contents(join(backup, 'binary'))).toBe('old-binary\n')
+  } finally { f.cleanup() }
+})
+
+for (const init of ['systemd', 'openrc']) shellTest(`${init} rollback still restarts the old service when restoring autostart fails`, () => {
+  const f = provisionFixture({ init, fail: 'enable' })
+  try {
+    expect(f.result.signal, f.result.stderr).toBeNull()
+    expect(f.result.status).not.toBe(0)
+    expect(f.result.stderr).toContain('恢复旧部署失败；备份保留在')
+    expect(contents(join(f.root, 'etc/hysteria/config.yaml'))).toBe('old-config\n')
+    expect(contents(join(f.root, 'usr/local/bin/hysteria'))).toBe('old-binary\n')
+    expect(contents(f.unit)).toBe('old-unit\n')
+    expect(existsSync(join(f.state, 'running'))).toBe(true)
+    expect(contents(join(f.state, 'restarts')).trim()).toBe('1')
+    const backup = f.result.stderr.match(/备份保留在 ([^，]+)/)?.[1]
     expect(contents(join(backup, 'binary'))).toBe('old-binary\n')
   } finally { f.cleanup() }
 })
