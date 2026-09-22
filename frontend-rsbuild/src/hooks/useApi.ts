@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { API_HEADERS } from '../utils'
 import type { ApiResponse } from '../types/api'
 import { fetchJson, RequestInterruptedError, WRITE_TIMEOUT_MS } from './request'
@@ -19,6 +19,14 @@ export function useToast() {
   const toastsRef = useRef<Toast[]>([])
   const timersRef = useRef(new Map<number, number>())
 
+  useEffect(() => {
+    const timers = timersRef.current
+    return () => {
+      timers.forEach(timer => window.clearTimeout(timer))
+      timers.clear()
+    }
+  }, [])
+
   const dismissToast = useCallback((id: number) => {
     const timer = timersRef.current.get(id)
     if (timer) {
@@ -35,14 +43,14 @@ export function useToast() {
     if (existing) {
       const oldTimer = timersRef.current.get(existing.id)
       if (oldTimer) window.clearTimeout(oldTimer)
-      timersRef.current.set(existing.id, window.setTimeout(() => dismissToast(existing.id), TOAST_DURATION))
+      if (tone !== 'error') timersRef.current.set(existing.id, window.setTimeout(() => dismissToast(existing.id), TOAST_DURATION))
       return existing.id
     }
 
     const id = ++toastIdRef.current
     toastsRef.current = [...toastsRef.current, { id, message, tone }]
     setToasts(toastsRef.current)
-    timersRef.current.set(id, window.setTimeout(() => dismissToast(id), TOAST_DURATION))
+    if (tone !== 'error') timersRef.current.set(id, window.setTimeout(() => dismissToast(id), TOAST_DURATION))
     return id
   }, [dismissToast])
 

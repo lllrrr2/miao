@@ -6,6 +6,7 @@ import { Button, SectionCard } from './ui'
 import { 
   classNames, 
   formatDelay, 
+  formatDelayTime,
   getDelayTone,
   protocolTone,
 } from '../utils'
@@ -25,6 +26,7 @@ export interface ProxyTileProps {
   nodeName: string
   protocol?: string
   delay?: number
+  measuredAt?: number
   isActive: boolean
   isArriving: boolean
   isTesting: boolean
@@ -36,7 +38,7 @@ export interface ProxyTileProps {
   group: string
 }
 
-const ProxyTile = memo(function ProxyTile({ nodeName, protocol, delay, isActive, isArriving, isTesting, isSwitching, switchDisabled, index, onSwitchProxy, onTestDelay, group }: ProxyTileProps) {
+const ProxyTile = memo(function ProxyTile({ nodeName, protocol, delay, measuredAt, isActive, isArriving, isTesting, isSwitching, switchDisabled, index, onSwitchProxy, onTestDelay, group }: ProxyTileProps) {
   return (
     <div
       className={classNames('proxy-tile', isActive && 'active', isArriving && 'arrive')}
@@ -59,6 +61,7 @@ const ProxyTile = memo(function ProxyTile({ nodeName, protocol, delay, isActive,
               : <span className="proxy-node-name">{nodeName}</span>}
         </div>
         {protocol && <span className={classNames('badge', 'proxy-proto', protocolTone(protocol))}>{protocol}</span>}
+        {delay !== undefined && <small className="delay-measured-at">{formatDelayTime(measuredAt)}</small>}
       </button>
       <button
         type="button"
@@ -82,6 +85,7 @@ export interface ProxyCardProps {
   primaryGroupName: string
   nodeProtocols?: Record<string, string>
   delays: Record<string, number>
+  delayMeasuredAt?: Record<string, number>
   testingNodes: Record<string, boolean>
   testingGroup: string
   switchingNode: string
@@ -101,6 +105,7 @@ export function ProxyCard({
   primaryGroupName, 
   nodeProtocols = {},
   delays, 
+  delayMeasuredAt = {},
   testingNodes, 
   testingGroup,
   switchingNode,
@@ -217,6 +222,7 @@ export function ProxyCard({
         </div>
       }
     >
+      <p className="delay-explanation">延迟反映到检测站点的响应时间，不代表下载速度；时间按当前设备时区显示。</p>
       <div className="proxy-grid-wrap">
         {primaryGroup ? (
           <div className="proxy-grid">
@@ -227,6 +233,7 @@ export function ProxyCard({
                 nodeName={nodeName}
                 protocol={nodeProtocols[nodeName]}
                 delay={delays[nodeName]}
+                measuredAt={delayMeasuredAt[nodeName]}
                 isActive={primaryGroup.now === nodeName}
                 isArriving={arrivedNode === nodeName}
                 isTesting={Boolean(testingNodes[nodeName])}

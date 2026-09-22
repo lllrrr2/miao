@@ -94,18 +94,20 @@ export function useAppData() {
   // fastest(urltest) 模式的延迟展示回落到 /proxies 自带的 urltest 周期测速
   // history(每轮 fetchProxies 自动刷新);手动点测结果优先显示——它与 history
   // 同源(sing-box 测完即写回),下一轮轮询即收敛。
-  const displayDelays = useMemo(() => {
+  const displayMeasurements = useMemo(() => {
     const map = { ...delays }
-    if (!isUrlTestGroup) return map
+    const measuredAt = { ...delayMeasuredAt }
+    if (!isUrlTestGroup) return { delays: map, measuredAt }
     Object.entries(proxies || {}).forEach(([name, proxy]) => {
       if (isClashProxyGroup(proxy?.type)) return
       const history = proxy?.history?.length ? proxy.history.reduce((latest, item) =>
         Date.parse(item.time) > Date.parse(latest.time) ? item : latest) : undefined
       if (history?.delay && (!(name in map) || Date.parse(history.time) > (delayMeasuredAt[name] ?? 0))) {
         map[name] = history.delay
+        measuredAt[name] = Date.parse(history.time)
       }
     })
-    return map
+    return { delays: map, measuredAt }
   }, [proxies, isUrlTestGroup, delays, delayMeasuredAt])
 
   const resetNodeForm = useCallback(() => {
@@ -232,7 +234,8 @@ export function useAppData() {
     fetchConnections,
     versionInfo,
     fetchVersion,
-    delays: displayDelays,
+    delays: displayMeasurements.delays,
+    delayMeasuredAt: displayMeasurements.measuredAt,
     testingNodes,
     testingGroup,
     testDelay,

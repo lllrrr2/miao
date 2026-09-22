@@ -57,7 +57,10 @@ export function TopBar({
   showToast,
 }: TopBarProps) {
   const upgradeSupported = versionInfo.upgrade_supported !== false
-  const label = versionInfo.has_update ? versionInfo.latest : versionInfo.current || 'v--'
+  const label = versionInfo.current || 'v--'
+  const versionTitle = versionInfo.has_update
+    ? `当前运行 ${label}；可更新至 ${versionInfo.latest}`
+    : `当前运行 ${label}；检查更新`
   const isGlobalMode = status.route_mode === 'global'
   const modeSwitching = pendingActions.has('routeMode')
   const modeControlDisabled = modeSwitching || status.initializing
@@ -163,23 +166,29 @@ export function TopBar({
           className={classNames('version-chip', versionInfo.has_update && 'has-update')}
           onClick={onUpgradeClick}
           disabled={upgrading}
+          title={versionTitle}
         >
           {upgrading && <LoaderCircle size={ICON.xs} className="spin" />}
           {!upgrading && versionInfo.has_update && <span className="version-dot" />}
           <span>{label}</span>
+          {versionInfo.has_update && <span>可更新至 {versionInfo.latest}</span>}
         </button>
       ) : (
-        <div
+        <a
           className={classNames('version-chip', versionInfo.has_update && 'has-update')}
+          href="https://github.com/YUxiangLuo/miao/releases/latest"
+          target="_blank"
+          rel="noreferrer"
           title={
             versionInfo.has_update
-              ? `发现新版本 ${versionInfo.latest}，请下载安装包更新`
-              : '请下载安装包更新'
+              ? `${versionTitle}；退出 Miao 后安装新版`
+              : `当前运行 ${label}；打开下载页面`
           }
         >
           {versionInfo.has_update && <span className="version-dot" />}
           <span>{label}</span>
-        </div>
+          <span>{versionInfo.has_update ? `下载 ${versionInfo.latest}` : '下载更新'}</span>
+        </a>
       )}
     </SectionCard>
   )

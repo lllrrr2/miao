@@ -89,7 +89,8 @@ describe('TopBar merged layout', () => {
 
     // 不提供面板内升级按钮，但仍提示有新版本
     expect(screen.queryByRole('button', { name: /v0/ })).not.toBeInTheDocument()
-    expect(screen.getByText('v0.32.0')).toBeInTheDocument()
+    expect(screen.getByText('v0.31.0')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /下载 v0.32.0/ })).toHaveAttribute('href', 'https://github.com/YUxiangLuo/miao/releases/latest')
     expect(container.querySelector('.version-dot')).toBeInTheDocument()
     expect(container.querySelector('.version-chip')).toHaveClass('has-update')
     expect(onUpgradeClick).not.toHaveBeenCalled()
@@ -109,7 +110,8 @@ describe('TopBar merged layout', () => {
       onUpgradeClick,
     })
 
-    await user.click(screen.getByRole('button', { name: /v0.32.0/ }))
+    expect(screen.getByText('v0.31.0')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /可更新至 v0.32.0/ }))
     expect(onUpgradeClick).toHaveBeenCalledTimes(1)
   })
 })

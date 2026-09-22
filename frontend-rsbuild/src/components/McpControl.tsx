@@ -1,3 +1,6 @@
+import { useState } from 'react'
+import { useDialog } from '../hooks/useDialog'
+import { Button } from './ui'
 import { classNames } from '../utils'
 import type { ToastTone } from '../hooks/useApi'
 
@@ -40,17 +43,28 @@ function AgentIcon({ agent }: { agent: Agent['id'] }) {
 // 顶栏 MCP 控件：端点开关 + 各 agent 的接入命令
 export function McpControl({ enabled, pending, onToggle, showToast }: McpControlProps) {
   const url = `${window.location.origin}/mcp`
+  const [manualCopy, setManualCopy] = useState<{ text: string; label: string } | null>(null)
+  const dialogRef = useDialog(Boolean(manualCopy), () => setManualCopy(null))
+  const agentInstructions = `## Miao MCP
 
-  const copyCommand = async (agent: Agent) => {
-    const command = agent.command(url)
+Miao 是基于 sing-box 的透明代理。通过 MCP 可查询代理状态、节点、订阅、分流规则和连接，并切换节点、测试延迟或调整设置。
+
+- 接入：先在 Miao 面板启用 MCP，再将 Streamable HTTP 端点 ${url} 添加为 MCP 服务（建议命名为 miao）；该地址必须能从 agent 所在环境访问。本文只提供使用约定，不会自动配置 MCP。
+- 操作前先用 get_status 查看状态，用 tools/list 获取当前工具及参数；节点名从 list_nodes 获取，不要猜测。
+- 排查网络时优先查询状态、连接和规则；test_delay 测的是节点延迟，不是下载速度；test_connectivity 从运行 Miao 的主机发起请求，不代表用户浏览器必然可用。
+- 修改仅限用户要求的范围。对要求 confirm: true 的工具，须先获得用户明确确认；启停、删除、VPS 部署、关闭 MCP、升级等可能影响网络，不要自行尝试。
+- 操作后读取状态核对结果；超时不等于失败，先确认实际结果再决定是否重试。不要启动第二个 Miao 实例来排错。
+`
+
+  const copyText = async (text: string, label: string) => {
     try {
       if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(command)
+        await navigator.clipboard.writeText(text)
       } else {
         // http 局域网访问不是安全上下文，clipboard API 不可用，退回 execCommand
         const textarea = document.createElement('textarea')
         const focused = document.activeElement
-        textarea.value = command
+        textarea.value = text
         textarea.style.position = 'fixed'
         textarea.style.opacity = '0'
         document.body.appendChild(textarea)
@@ -62,13 +76,14 @@ export function McpControl({ enabled, pending, onToggle, showToast }: McpControl
           if (focused instanceof HTMLElement) focused.focus()
         }
       }
-      showToast(`已复制 ${agent.label} MCP 添加命令`, 'success')
+      showToast(`已复制 ${label}`, 'success')
     } catch {
-      showToast(`复制失败，请手动复制：${command}`, 'error')
+      setManualCopy({ text, label })
     }
   }
 
   return (
+    <>
     <div className="mcp-control" aria-label="MCP 控制">
       <span className="mcp-control-label" title="Model Context Protocol">MCP</span>
       <button
@@ -95,7 +110,7 @@ export function McpControl({ enabled, pending, onToggle, showToast }: McpControl
               key={agent.id}
               type="button"
               className={classNames('mcp-agent-button', agent.id)}
-              onClick={() => copyCommand(agent)}
+              onClick={() => copyText(command, `${agent.label} MCP 添加命令`)}
               title={`复制 ${agent.label} MCP 添加命令：${command}`}
               aria-label={`复制 ${agent.label} MCP 添加命令`}
             >
@@ -104,6 +119,18 @@ export function McpControl({ enabled, pending, onToggle, showToast }: McpControl
           )
         })}
       </div>
+      <Button tone="ghost" size="sm" title="复制简短 Markdown，粘贴到 AGENTS.md" aria-label="复制 AGENTS.md 说明" onClick={() => copyText(agentInstructions, 'AGENTS.md 说明')}>AGENTS.md</Button>
     </div>
+    {manualCopy && (
+      <div className="modal-overlay" onClick={() => setManualCopy(null)}>
+        <div ref={dialogRef} className="modal-card modal-confirm" role="dialog" aria-modal="true" aria-label="手动复制" tabIndex={-1} onClick={event => event.stopPropagation()}>
+          <h3>{manualCopy.label}</h3>
+          <p>浏览器未能复制，请手动复制下方文本。命令在终端运行；Markdown 说明粘贴到 AGENTS.md。</p>
+          <textarea aria-label="待复制文本" data-autofocus readOnly rows={6} value={manualCopy.text} onFocus={event => event.currentTarget.select()} />
+          <div className="modal-actions"><Button tone="primary" onClick={() => setManualCopy(null)}>完成</Button></div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }

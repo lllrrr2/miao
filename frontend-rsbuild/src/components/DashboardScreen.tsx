@@ -98,6 +98,7 @@ export function DashboardScreen({ app }: { app: ReturnType<typeof useAppControll
               primaryGroupName={app.primaryGroupName}
               nodeProtocols={app.nodeProtocols}
               delays={app.delays}
+              delayMeasuredAt={app.delayMeasuredAt}
               testingNodes={app.testingNodes}
               testingGroup={app.testingGroup}
               switchingNode={app.switchingNode}
@@ -118,6 +119,7 @@ export function DashboardScreen({ app }: { app: ReturnType<typeof useAppControll
               isInitializing={app.status.initializing}
               isReady={app.status.ready}
               delays={app.delays}
+              delayMeasuredAt={app.delayMeasuredAt}
               testingNodes={app.testingNodes}
               onTestDelay={app.handleTestDelay}
               onDeleteNode={app.handleOpenDeleteNodeConfirm}

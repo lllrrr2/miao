@@ -59,6 +59,17 @@
     min-height: 0;
     overflow-y: auto;
 }
+.delay-explanation {
+    margin: var(--space-2) var(--space-2) 0;
+    color: var(--text-muted);
+    font-size: var(--fs-xs);
+}
+.delay-measured-at {
+    color: var(--text-muted);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+    overflow-wrap: anywhere;
+}
 .proxy-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -45,15 +45,15 @@ describe('App onboarding integration', () => {
     stubMatchMedia()
     render(<App />)
     await act(async () => { await rs.advanceTimersByTimeAsync(0) })
-    fireEvent.click(screen.getByRole('button', { name: 'v0.49.0' }))
+    fireEvent.click(screen.getByRole('button', { name: /0\.48\.1\s*可更新至 v0\.49\.0/ }))
     fireEvent.click(screen.getByRole('button', { name: '确认' }))
     await act(async () => { await rs.advanceTimersByTimeAsync(0) })
     expect(screen.getByText('升级请求已接受，等待目标版本启动…')).toBeInTheDocument()
     expect(screen.queryByText('更新成功，等待服务重启…')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'v0.49.0' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /0\.48\.1\s*可更新至 v0\.49\.0/ })).toBeDisabled()
     await act(async () => { await rs.advanceTimersByTimeAsync(30_000) })
     expect(screen.getByText(/可能尚未重启或已回滚/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'v0.49.0' })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: /0\.48\.1\s*可更新至 v0\.49\.0/ })).not.toBeDisabled()
     expect(upgrades).toBe(1)
   })
 
@@ -173,6 +173,7 @@ describe('App onboarding integration', () => {
 
   it('does not auto-test delay in fastest mode and shows urltest history instead', async () => {
     const delayCalls: string[] = []
+    const measured = new Date(2026, 8, 22, 13, 24, 56).toISOString()
     const fetchMock = rs.fn(async (input) => {
       const url = String(input)
       if (url === '/api/status') {
@@ -197,7 +198,7 @@ describe('App onboarding integration', () => {
         return jsonResponse({
           proxies: {
             proxy: { type: 'URLTest', name: 'proxy', now: 'node-a', all: ['node-a', 'node-b'] },
-            'node-a': { type: 'Hysteria2', name: 'node-a', history: [{ time: '2026-01-01T00:00:00Z', delay: 96 }] },
+            'node-a': { type: 'Hysteria2', name: 'node-a', history: [{ time: measured, delay: 96 }, { time: '2026-01-01T00:00:00Z', delay: 300 }] },
             'node-b': { type: 'Hysteria2', name: 'node-b', history: [{ time: '2026-01-01T00:00:00Z', delay: 120 }] },
           },
         })
@@ -221,6 +222,7 @@ describe('App onboarding integration', () => {
     await waitFor(() => {
       expect(screen.getAllByText('96 ms').length).toBeGreaterThan(0)
       expect(screen.getAllByText('120 ms').length).toBeGreaterThan(0)
+      expect(screen.getByText('测于 09/22 13:24:56')).toBeInTheDocument()
     })
     expect(delayCalls).toHaveLength(0)
   })

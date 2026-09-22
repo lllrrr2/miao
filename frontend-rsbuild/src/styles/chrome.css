@@ -44,6 +44,9 @@
 }
 .version-chip {
     display: inline-flex;
+    flex-wrap: wrap;
+    max-width: var(--toast-min-w);
+    text-decoration: none;
     align-items: center;
     gap: var(--space-1);
     padding: 4px var(--space-2);
@@ -644,8 +647,12 @@
     flex-direction: column;
     gap: var(--space-2);
     z-index: var(--z-toast);
+    max-width: min(var(--modal-w), calc(100vw - 2 * var(--float-offset)));
+    max-height: calc(100dvh - 2 * var(--float-offset));
+    overflow-y: auto;
 }
 .toast {
+    flex-shrink: 0;
     min-width: var(--toast-min-w);
     display: flex;
     align-items: center;
@@ -657,6 +664,15 @@
     box-shadow: var(--shadow);
     color: var(--text);
     font-size: var(--fs-lg);
+}
+.toast > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    user-select: text;
+}
+.toast > svg {
+    flex-shrink: 0;
 }
 .toast.success {
     border-left: var(--bw-bar) solid var(--success);

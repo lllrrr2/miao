@@ -80,14 +80,15 @@ describe('NodesCard', () => {
     expect(screen.getByRole('button', { name: '测试 香港节点 延迟' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '测试 香港节点 延迟' })).toHaveAttribute('aria-busy', 'true')
     expect(screen.getByRole('button', { name: '测试 vps-1 延迟' })).toBeEnabled()
-    expect(screen.getByText('测速中…')).toBeInTheDocument()
-    expect(screen.getByText('超时')).toBeInTheDocument()
+    expect(screen.getByText('测试延迟中…')).toBeInTheDocument()
+    expect(screen.getByText(/超时 · 测试时间未知/)).toBeInTheDocument()
     expect(screen.queryByText('42 ms')).not.toBeInTheDocument()
   })
 
   it('shows measured latency', () => {
-    renderCard({ delays: { 'vps-1': 137 } })
+    renderCard({ delays: { 'vps-1': 137 }, delayMeasuredAt: { 'vps-1': new Date(2026, 8, 22, 13, 24, 56).getTime() } })
     expect(screen.getByRole('status')).toHaveTextContent('137 ms')
+    expect(screen.getByRole('status')).toHaveTextContent('测于 09/22 13:24:56')
   })
 
   it.each([{ isReady: false }, { isInitializing: true }])('disables testing when unavailable: %j', (props) => {

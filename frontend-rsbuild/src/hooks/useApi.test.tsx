@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, rs } from '@rstest/core'
-import { useApi } from './useApi'
+import { useApi, useToast } from './useApi'
 import { WRITE_TIMEOUT_MS } from './request'
 
 function deferredResponse() {
@@ -22,6 +22,27 @@ describe('useApi pending actions', () => {
   afterEach(() => {
     rs.useRealTimers()
     rs.unstubAllGlobals()
+  })
+
+  it('keeps errors until dismissed, deduplicates them and expires ordinary notices', async () => {
+    rs.useFakeTimers()
+    const { result, unmount } = renderHook(() => useToast())
+    let errorId = 0
+    act(() => {
+      result.current.showToast('已保存', 'success')
+      errorId = result.current.showToast('订阅更新失败，旧节点仍可用', 'error')
+      expect(result.current.showToast('订阅更新失败，旧节点仍可用', 'error')).toBe(errorId)
+    })
+    expect(result.current.toasts).toHaveLength(2)
+    await act(async () => { await rs.advanceTimersByTimeAsync(3500) })
+    expect(result.current.toasts.map(toast => toast.id)).toEqual([errorId])
+    await act(async () => { await rs.advanceTimersByTimeAsync(60_000) })
+    expect(result.current.toasts).toHaveLength(1)
+    act(() => { result.current.dismissToast(errorId) })
+    expect(result.current.toasts).toHaveLength(0)
+    act(() => { result.current.showToast('检查中') })
+    unmount()
+    expect(rs.getTimerCount()).toBe(0)
   })
 
   it('bounds a hanging response body, releases pending and reconciles without retrying the write', async () => {

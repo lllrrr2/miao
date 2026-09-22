@@ -107,6 +107,8 @@ disabled_nodes:
 
 设置 `mcp: true` 或使用面板顶部 MCP 开关，连接 `http://<面板地址>/mcp`；关闭时返回 404。顶部的 Claude、Codex 图标可复制对应客户端的添加命令。当前实现 MCP `2025-11-25` Streamable HTTP：先 `initialize`，再 `notifications/initialized`，后续请求携带 `MCP-Protocol-Version`；无 session、无 SSE，启用时 `GET /mcp` 返回 405。
 
+旁边的「AGENTS.md」按钮可复制简短 Markdown 使用说明，包含当前端点、常用工具及操作确认约定，可粘贴到项目的 `AGENTS.md`。说明不会自动配置 MCP；agent 须能访问该地址。浏览器复制失败时，弹窗保留文本供手动选取复制。
+
 用 `tools/list` 获取完整工具和参数。工具覆盖状态、流量/连接、启停、节点策略/倍率、切换/测速、订阅、定时刷新、手动节点、规则、MCP 开关、VPS 部署和升级；平台不支持的操作返回明确错误。主题、弹窗、PWA 和分享链接解析属于浏览器本地功能；结构化节点可通过 `add_node` / `import_nodes` 导入。
 
 停止、删除、部署、关闭 MCP、升级等破坏性工具要求 `confirm: true`，调用者须先获得用户明确确认。订阅 URL、连接记录和 VPS 密码应保密；流量可能正经过本代理，热应用配置可能影响连接。

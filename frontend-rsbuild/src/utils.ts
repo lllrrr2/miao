@@ -235,6 +235,11 @@ export function formatDelay(delay: number | null | undefined): string {
   return `${delay} ms`
 }
 
+export function formatDelayTime(timestamp?: number): string {
+  if (!timestamp || !Number.isFinite(timestamp)) return '测试时间未知'
+  return `测于 ${new Date(timestamp).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}`
+}
+
 // 协议 chip 色调（.badge 变体之一）：常见协议显式映射，
 // 未知协议按名称哈希到色调之一——同一协议永远同色。
 // 分类 chip 不用红/绿：danger 保留给错误/拦截等警示语义，success 专属直连
