@@ -143,18 +143,23 @@ struct HysteriaCredentials {
 /// 远程 Hysteria2 部署的状态,由 SSH 探针脚本的退出码区分:
 /// - 0:   miao 部署的,凭据可复用
 /// - 10:  无 hysteria 配置,可直接全新部署
+/// - 20:  miao 旧配置,需通过部署事务升级内核和 Gecko 配置
 /// - 30:  存在 hysteria 服务但不是 miao 部署的,需先清理再重新部署
 enum RemoteHysteriaState {
     Reusable(HysteriaCredentials),
     NotFound,
+    NeedsMigration(HysteriaCredentials),
     NeedsCleanup,
 }
 
-/// 找到 server 与给定 VPS IP 匹配的手动节点 tag
+/// 找到该 VPS 上部署端口的 Hysteria2 手动节点 tag。
 pub fn node_tag_for_vps(config: &Config, vps_ip: &str) -> Option<String> {
     config.nodes.iter().find_map(|node| {
         parse_node_json(node).ok().and_then(|(info, _)| {
-            if info.server == vps_ip {
+            if info.server == vps_ip
+                && info.node_type == "hysteria2"
+                && info.server_port == HYSTERIA_PORT
+            {
                 Some(info.tag)
             } else {
                 None
@@ -182,6 +187,11 @@ pub async fn provision_vps_node(vps_ip: &str, root_password: &str) -> AppResult<
     {
         Ok(RemoteHysteriaState::Reusable(credentials)) => {
             info!(vps_ip = %vps_ip, port = HYSTERIA_PORT, obfs = HYSTERIA_OBFS_TYPE, "Recovered existing VPS Hysteria2 node from remote config");
+            credentials
+        }
+        Ok(RemoteHysteriaState::NeedsMigration(credentials)) => {
+            info!(vps_ip = %vps_ip, "Migrating legacy Miao Hysteria2 deployment transactionally");
+            provision_remote_hysteria(&vps_ip, &credentials, root_password).await?;
             credentials
         }
         Ok(RemoteHysteriaState::NotFound) => {
@@ -299,6 +309,9 @@ async fn probe_remote_hysteria_credentials(
         Some(10) => {
             info!(vps_ip = %vps_ip, "No reusable remote Hysteria2 config found");
             Ok(RemoteHysteriaState::NotFound)
+        }
+        Some(20) => {
+            parse_probe_credentials(&output.stdout).map(RemoteHysteriaState::NeedsMigration)
         }
         Some(30) => {
             info!(
@@ -474,6 +487,22 @@ mod tests {
     }
 
     #[test]
+    fn vps_lookup_does_not_confuse_other_protocols_or_ports() {
+        for (protocol, port) in [("trojan", 543), ("hysteria2", 443)] {
+            let config = Config {
+                nodes: vec![serde_json::json!({
+                    "type": protocol, "tag": "unrelated", "server": "203.0.113.10",
+                    "server_port": port, "password": "secret",
+                    "tls": {"enabled": true, "insecure": true}
+                })
+                .to_string()],
+                ..Config::default()
+            };
+            assert_eq!(node_tag_for_vps(&config, "203.0.113.10"), None);
+        }
+    }
+
+    #[test]
     fn vps_node_tag_is_stable_and_limited() {
         assert_eq!(vps_node_tag("Example.COM"), "vps-example-com");
         assert!(vps_node_tag(&"a".repeat(100)).len() <= 64);
@@ -509,8 +538,8 @@ mod tests {
 
         assert!(script.contains("/etc/hysteria/config.yaml"));
         assert!(script.contains("listen:[[:space:]]*:543"));
-        assert!(script.contains("type: gecko"));
-        assert!(script.contains("password: ${GECKO_PASSWORD}"));
+        assert!(script.contains("exit 20"));
+        assert!(!script.contains("cat > \"$CONFIG\""));
         assert!(script.contains("systemctl restart"));
         assert!(script.contains("printf '%s\\n' \"$PASSWORD\""));
         assert!(script.contains("printf '%s\\n' \"$GECKO_PASSWORD\""));

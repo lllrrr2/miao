@@ -88,25 +88,11 @@ if [ "$OBFS_TYPE" != "gecko" ] || [ -z "$GECKO_PASSWORD" ]; then
   fi
 
   GECKO_PASSWORD="$FALLBACK_OBFS_PASSWORD"
-  cat > "$CONFIG" <<EOF
-listen: :543
-tls:
-  cert: /etc/hysteria/server.crt
-  key: /etc/hysteria/server.key
-auth:
-  type: password
-  password: ${PASSWORD}
-obfs:
-  type: gecko
-  gecko:
-    password: ${GECKO_PASSWORD}
-masquerade:
-  type: proxy
-  proxy:
-    url: https://www.bing.com/
-    rewriteHost: true
-EOF
-  chmod 600 "$CONFIG"
+  # Let provision.sh upgrade both binary and config in its rollback transaction.
+  # The probe must not destroy the legacy config before that backup exists.
+  printf '%s\n' "$PASSWORD"
+  printf '%s\n' "$GECKO_PASSWORD"
+  exit 20
 fi
 
 miao_start_checked

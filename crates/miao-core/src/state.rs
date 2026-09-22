@@ -33,6 +33,9 @@ pub struct AppState {
     pub volatile_path: PathBuf,
     pub runtime_paths: RuntimePaths,
     pub config_update: Arc<Mutex<()>>,
+    /// Serialize each VPS's remote provisioning through local config commit.
+    #[cfg(not(windows))]
+    pub vps_deployments: Mutex<HashMap<String, std::sync::Weak<Mutex<()>>>>,
     pub sing_process: Mutex<Option<SingBoxProcess>>,
     pub lifecycle: lifecycle::RuntimeLifecycle,
     pub proxy_selection_generation: AtomicU64,
@@ -144,6 +147,8 @@ impl AppState {
             volatile_path,
             runtime_paths,
             config_update: Arc::new(Mutex::new(())),
+            #[cfg(not(windows))]
+            vps_deployments: Mutex::new(HashMap::new()),
             sing_process: Mutex::new(None),
             lifecycle: lifecycle::RuntimeLifecycle::default(),
             proxy_selection_generation: AtomicU64::new(0),
