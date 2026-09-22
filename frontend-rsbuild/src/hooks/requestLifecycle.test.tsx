@@ -1,14 +1,44 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, expect, it, rs } from '@rstest/core'
-import { useStatus } from './useResources'
+import { useStatus, useNodes } from './useResources'
 import { useDelays, useProxies } from './useClash'
 import { useAppData } from './useAppData'
 import { usePolling } from './usePolling'
 import { READ_TIMEOUT_MS } from './request'
-import { statusMock } from '../testFixtures'
+import { nodeMock, statusMock } from '../testFixtures'
 function deferred() { let resolve!: (value: Response) => void; const promise = new Promise<Response>(done => {resolve=done}); return {resolve,promise} }
 function response(data: unknown) { return {ok:true,json:async()=>data} as Response }
 afterEach(()=>{rs.useRealTimers();rs.unstubAllGlobals()})
+it('retains cached nodes on read failure and clears the error only after successful recovery', async () => {
+  const node = nodeMock({ tag: 'cached-node' })
+  const fetch = rs.fn()
+    .mockResolvedValueOnce(response({ success: true, data: [node] }))
+    .mockRejectedValueOnce(new Error('connection lost'))
+    .mockResolvedValueOnce(response({ success: true, data: [] }))
+  rs.stubGlobal('fetch', fetch)
+  const { result } = renderHook(() => useNodes())
+  await act(async () => { await result.current.fetchNodes() })
+  await act(async () => { await result.current.fetchNodes() })
+  expect(result.current.nodes).toEqual([node])
+  expect(result.current.nodesError).toBe('connection lost')
+  await act(async () => { await result.current.fetchNodes() })
+  expect(result.current.nodesError).toBe('')
+  expect(result.current.nodes).toEqual([])
+})
+
+it('does not publish an error from an obsolete list request', async () => {
+  const old = deferred()
+  rs.stubGlobal('fetch', rs.fn().mockImplementationOnce(() => old.promise)
+    .mockResolvedValueOnce(response({ success: true, data: [] })))
+  const { result } = renderHook(() => useNodes())
+  let previous!: Promise<unknown>
+  act(() => { previous = result.current.fetchNodes() })
+  await act(async () => { await result.current.fetchNodes() })
+  await act(async () => { old.resolve(response({ success: false, message: 'obsolete error' })); await previous })
+  expect(result.current.nodesError).toBe('')
+  expect(result.current.nodesAvailable).toBe(true)
+})
+
 it('keeps the latest status when an older response arrives last',async()=>{
  const old=deferred(),fresh=deferred(); rs.stubGlobal('fetch',rs.fn().mockImplementationOnce(()=>old.promise).mockImplementationOnce(()=>fresh.promise));
  const {result}=renderHook(()=>useStatus());let a!:Promise<unknown>,b!:Promise<unknown>;

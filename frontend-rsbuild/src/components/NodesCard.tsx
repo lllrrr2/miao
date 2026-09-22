@@ -2,6 +2,7 @@ import { memo } from 'react'
 import { LoaderCircle, Plus, Server, Trash2, Zap } from 'lucide-react'
 import { ICON } from '../tokens'
 import { Button, SectionCard } from './ui'
+import { ResourceError } from './ResourceError'
 import { protocolTone, classNames, formatDelay, formatDelayTime } from '../utils'
 import type { NodeInfo } from '../types/api'
 
@@ -51,6 +52,8 @@ const NodeRow = memo(function NodeRow({ node, onDelete, disabled, delay, measure
 
 export interface NodesCardProps {
   nodes: NodeInfo[]
+  loadError?: string
+  onRetry?: () => Promise<unknown>
   isInitializing: boolean
   isReady: boolean
   delays: Record<string, number>
@@ -61,7 +64,7 @@ export interface NodesCardProps {
   onOpenAddNode: () => void
 }
 
-export function NodesCard({ nodes, isInitializing, isReady, delays, delayMeasuredAt = {}, testingNodes, onTestDelay, onDeleteNode, onOpenAddNode }: NodesCardProps) {
+export function NodesCard({ nodes, loadError, onRetry, isInitializing, isReady, delays, delayMeasuredAt = {}, testingNodes, onTestDelay, onDeleteNode, onOpenAddNode }: NodesCardProps) {
   return (
     <SectionCard
       bodyClassName="panel-body-tight"
@@ -70,7 +73,7 @@ export function NodesCard({ nodes, isInitializing, isReady, delays, delayMeasure
           <div className="section-title-wrap">
             <Server size={ICON.sm} className="section-icon" />
             <span>手动节点</span>
-            <span className={classNames('badge', 'counter-pill')}>{nodes.length}</span>
+            <span className={classNames('badge', 'counter-pill')}>{loadError ? '—' : nodes.length}</span>
           </div>
           <Button
             tone="secondary"
@@ -85,8 +88,9 @@ export function NodesCard({ nodes, isInitializing, isReady, delays, delayMeasure
       }
     >
       <div className="list-stack">
+        {loadError && <ResourceError label="手动节点" error={loadError} hasData={nodes.length > 0} onRetry={onRetry} />}
         {nodes.length === 0 
-          ? <div className="empty-block">暂无手动节点</div> 
+          ? !loadError && <div className="empty-block">暂无手动节点</div>
           : nodes.map((node) => (
             <NodeRow
               key={node.tag}

@@ -30,6 +30,34 @@ describe('App onboarding integration', () => {
   })
 
   it.each([
+    ['/api/nodes', '手动节点', '暂无手动节点'],
+    ['/api/subs', '订阅列表', '暂无订阅'],
+    ['/api/rules', '自定义规则', '暂无自定义规则'],
+  ])('distinguishes a failed list from an empty configuration and retries only the read: %s', async (endpoint, label, empty) => {
+    let failed = true
+    const fetch = rs.fn(async (input) => {
+      const url = String(input)
+      if (url === endpoint && failed) return jsonResponse({ success: false, message: '临时读取错误' }, 503)
+      if (url === '/api/status') return jsonResponse({ success: true, data: statusMock() })
+      if (url === '/api/subs' || url === '/api/nodes' || url === '/api/rules') return jsonResponse({ success: true, data: [] })
+      if (url === '/api/version') return jsonResponse({ success: true, data: { current: '0.48.1', latest: null, has_update: false } })
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    rs.stubGlobal('fetch', fetch)
+    stubMatchMedia()
+    const user = userEvent.setup()
+    render(<App />)
+    expect(await screen.findByText(`${label}读取失败`)).toBeInTheDocument()
+    expect(screen.queryByText(empty)).not.toBeInTheDocument()
+    expect(screen.queryByText('添加订阅链接或手动节点以开始使用')).not.toBeInTheDocument()
+    failed = false
+    await user.click(screen.getByRole('button', { name: `重新读取${label}` }))
+    expect(await screen.findByText('添加订阅链接或手动节点以开始使用')).toBeInTheDocument()
+    expect(screen.queryByText(`${label}读取失败`)).not.toBeInTheDocument()
+    expect(fetch.mock.calls.filter(([url]) => url === endpoint)).toHaveLength(2)
+  })
+
+  it.each([
     [subscriptionRefreshMock({ fetch_succeeded: false, refreshed: false }), '订阅获取失败，已保留原配置。请查看订阅错误详情。'],
     [subscriptionRefreshMock({ warning: '部分订阅失败，使用缓存' }), '订阅刷新有告警：部分订阅失败，使用缓存'],
     [subscriptionRefreshMock({ report: { successful_sources: 2, failed_sources: 1, fresh_nodes: 7, cached_nodes: 3 } }), '订阅部分获取成功：成功 2 个，失败 1 个。请查看订阅详情。'],
@@ -185,7 +213,7 @@ describe('App onboarding integration', () => {
           data: { running: false, initializing: false, route_mode: 'rule' },
         })
       }
-      if (url === '/api/nodes') {
+      if (url === '/api/nodes' || url === '/api/rules') {
         return jsonResponse({ success: true, data: [] })
       }
       if (url === '/api/subs' && options.method === 'POST') {

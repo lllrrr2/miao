@@ -376,6 +376,23 @@
     overflow-wrap: anywhere;
     line-height: var(--lh-normal);
 }
+.resource-error {
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-normal);
+    overflow-wrap: anywhere;
+}
+.resource-error strong {
+    color: var(--danger);
+}
+.resource-error p,
+.resource-error details {
+    margin: var(--space-1) 0;
+    color: var(--text-muted);
+}
+.resource-error summary {
+    cursor: pointer;
+}
 /* 可点击的元信息行（订阅的「N 个节点」→ 订阅详情弹窗）：紫 = 交互 */
 .list-row-meta.meta-link {
     /* 按钮复位：对齐 .list-row-meta 的排版 */

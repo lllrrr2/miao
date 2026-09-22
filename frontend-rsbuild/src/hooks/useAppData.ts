@@ -36,9 +36,9 @@ export function useAppData() {
 
   const { toasts, showToast, dismissToast } = useToast()
   const { status, statusLoaded, statusFailures, statusSettled, fetchStatus } = useStatus()
-  const { subs, subsLoaded, subsAvailable, fetchSubs } = useSubs()
-  const { nodes, nodesLoaded, nodesAvailable, fetchNodes } = useNodes()
-  const { rules, rulesLoaded, fetchRules } = useRules()
+  const { subs, subsLoaded, subsAvailable, subsError, fetchSubs } = useSubs()
+  const { nodes, nodesLoaded, nodesAvailable, nodesError, fetchNodes } = useNodes()
+  const { rules, rulesLoaded, rulesError, fetchRules } = useRules()
   const { proxies, primaryGroupName, primaryGroup, fetchProxies } = useProxies(status)
 
   const refreshAfterUncertainWrite = useCallback(() => {
@@ -128,6 +128,7 @@ export function useAppData() {
     && !status.initializing
     && !status.ready
     && subsAvailable && nodesAvailable
+    && !subsError && !nodesError && !rulesError
     && subs.length === 0
     && nodes.length === 0
 
@@ -217,10 +218,13 @@ export function useAppData() {
     backendUnreachable,
     fetchStatus,
     subs,
+    subsError,
     fetchSubs,
     nodes,
+    nodesError,
     fetchNodes,
     rules,
+    rulesError,
     fetchRules,
     primaryGroupName,
     primaryGroup,

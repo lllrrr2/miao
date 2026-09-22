@@ -3,6 +3,7 @@ import { ListFilter, Plus, Trash2, TriangleAlert } from 'lucide-react'
 import { ICON } from '../tokens'
 import { Button, SectionCard } from './ui'
 import { RuleModal } from './RuleModal'
+import { ResourceError } from './ResourceError'
 import { classNames } from '../utils'
 import { describeRule, ruleFieldTone, ruleTargetLabel } from '../ruleFormat'
 import { activeRuleIndexes } from '../ruleActivity'
@@ -75,6 +76,8 @@ const RuleRow = memo(function RuleRow({ rule, onDelete, disabled, active }: Rule
 
 export interface RulesCardProps {
   rules: RuleInfo[]
+  loadError?: string
+  onRetry?: () => Promise<unknown>
   isInitializing: boolean
   pendingActions: ReadonlySet<string>
   onAddRule: (rule: RuleRequest) => Promise<boolean>
@@ -89,6 +92,8 @@ export interface RulesCardProps {
 
 export function RulesCard({
   rules,
+  loadError,
+  onRetry,
   isInitializing,
   pendingActions,
   onAddRule,
@@ -116,7 +121,7 @@ export function RulesCard({
             <div className="section-title-wrap">
               <ListFilter size={ICON.sm} className="section-icon" />
               <span>自定义规则</span>
-              <span className={classNames('badge', 'counter-pill')}>{rules.length}</span>
+              <span className={classNames('badge', 'counter-pill')}>{loadError ? '—' : rules.length}</span>
             </div>
             <Button
               tone="secondary"
@@ -131,7 +136,8 @@ export function RulesCard({
         }
       >
         <div className="list-stack">
-          {rules.length === 0 && <div className="empty-block">暂无自定义规则</div>}
+          {loadError && <ResourceError label="自定义规则" error={loadError} hasData={rules.length > 0} onRetry={onRetry} />}
+          {rules.length === 0 && !loadError && <div className="empty-block">暂无自定义规则</div>}
           {rules.map((rule) => (
             <RuleRow
               key={rule.index}

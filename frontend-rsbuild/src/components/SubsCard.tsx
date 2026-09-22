@@ -6,6 +6,7 @@ import { useDialog } from '../hooks/useDialog'
 import { classNames, maskSubscription } from '../utils'
 import { SubDetailModal } from './SubDetailModal'
 import { ScheduleModal } from './ScheduleModal'
+import { ResourceError } from './ResourceError'
 import type { ScheduledRefreshRequest, SubStatus, SubscriptionRefreshStatus } from '../types/api'
 
 interface SubRowProps {
@@ -166,6 +167,8 @@ function AddSubModal({ open, loading, onClose, onSubmit }: AddSubModalProps) {
 
 export interface SubsCardProps {
   subs: SubStatus[]
+  loadError?: string
+  onRetry?: () => Promise<unknown>
   refreshStatus?: SubscriptionRefreshStatus
   pendingActions: ReadonlySet<string>
   onAddSub: (url: string) => Promise<boolean>
@@ -177,7 +180,7 @@ export interface SubsCardProps {
   isInitializing: boolean
 }
 
-export function SubsCard({ subs, refreshStatus, pendingActions, onAddSub, onDeleteSub, onRefreshSubs, onToggleNodeDisabled, onSaveSchedule, isInitializing }: SubsCardProps) {
+export function SubsCard({ subs, loadError, onRetry, refreshStatus, pendingActions, onAddSub, onDeleteSub, onRefreshSubs, onToggleNodeDisabled, onSaveSchedule, isInitializing }: SubsCardProps) {
   const [showAdd, setShowAdd] = useState(false)
   const [showSchedule, setShowSchedule] = useState(false)
   const [detailSub, setDetailSub] = useState<SubStatus | null>(null)
@@ -223,6 +226,7 @@ export function SubsCard({ subs, refreshStatus, pendingActions, onAddSub, onDele
       }
     >
       <div className="list-stack">
+        {loadError && <ResourceError label="订阅列表" error={loadError} hasData={subs.length > 0} onRetry={onRetry} />}
         {subs.length > 0 && (refreshing || refreshStatus?.phase === 'fetching') && (
           <div className="list-row" role="status">
             <div className="list-row-meta">正在获取订阅并检查配置，请稍候…</div>
@@ -244,7 +248,7 @@ export function SubsCard({ subs, refreshStatus, pendingActions, onAddSub, onDele
           </div>
         )}
         {subs.length === 0 
-          ? <div className="empty-block">暂无订阅</div> 
+          ? !loadError && <div className="empty-block">暂无订阅</div>
           : subs.map((sub) => (
             <SubRow
               key={sub.url}

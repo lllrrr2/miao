@@ -31,6 +31,7 @@ function useResource<T>(path: string, initial: T) {
   const [loaded, setLoaded] = useState(false)
   const [settled, setSettled] = useState(false)
   const [failures, setFailures] = useState(0)
+  const [error, setError] = useState('')
   const { begin } = useLatestRequest()
   const refresh = useCallback(async (): Promise<T | null> => {
     const request = begin()
@@ -43,15 +44,19 @@ function useResource<T>(path: string, initial: T) {
       setData(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
       setLoaded(true)
       setFailures(0)
+      setError('')
       return next
-    } catch {
-      if (request.isCurrent()) setFailures(count => count + 1)
+    } catch (cause) {
+      if (request.isCurrent()) {
+        setFailures(count => count + 1)
+        setError(cause instanceof Error ? cause.message : String(cause))
+      }
       return null
     } finally {
       if (request.isCurrent()) setSettled(true)
     }
   }, [path, begin])
-  return { data, loaded, settled, failures, refresh }
+  return { data, loaded, settled, failures, error, refresh }
 }
 
 export function useStatus() {
@@ -72,17 +77,17 @@ export function useStatus() {
 
 export function useSubs() {
   const resource = useResource<SubStatus[]>('/api/subs', [])
-  return { subs: resource.data, subsLoaded: resource.settled, subsAvailable: resource.loaded, fetchSubs: resource.refresh }
+  return { subs: resource.data, subsLoaded: resource.settled, subsAvailable: resource.loaded, subsError: resource.error, fetchSubs: resource.refresh }
 }
 
 export function useNodes() {
   const resource = useResource<NodeInfo[]>('/api/nodes', [])
-  return { nodes: resource.data, nodesLoaded: resource.settled, nodesAvailable: resource.loaded, fetchNodes: resource.refresh }
+  return { nodes: resource.data, nodesLoaded: resource.settled, nodesAvailable: resource.loaded, nodesError: resource.error, fetchNodes: resource.refresh }
 }
 
 export function useRules() {
   const resource = useResource<RuleInfo[]>('/api/rules', [])
-  return { rules: resource.data, rulesLoaded: resource.settled, fetchRules: resource.refresh }
+  return { rules: resource.data, rulesLoaded: resource.settled, rulesError: resource.error, fetchRules: resource.refresh }
 }
 
 const INITIAL_VERSION: VersionInfo = {

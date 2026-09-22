@@ -26,6 +26,22 @@ function renderCard(props = {}) {
 }
 
 describe('NodesCard', () => {
+  it('labels retained nodes as stale and retries without deleting or testing them', async () => {
+    const user = userEvent.setup()
+    const onRetry = rs.fn().mockResolvedValue(null)
+    const onDeleteNode = rs.fn()
+    const onTestDelay = rs.fn()
+    renderCard({ loadError: 'read timeout', onRetry, onDeleteNode, onTestDelay })
+    expect(screen.getByRole('alert')).toHaveTextContent('保留上次读取的数据')
+    expect(screen.getByText('vps-1')).toBeInTheDocument()
+    await user.click(screen.getByText('错误详情'))
+    expect(screen.getByText('read timeout')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '重新读取手动节点' }))
+    expect(onRetry).toHaveBeenCalledTimes(1)
+    expect(onDeleteNode).not.toHaveBeenCalled()
+    expect(onTestDelay).not.toHaveBeenCalled()
+  })
+
   it('keeps the protocol badge as a direct row child so the grid can right-align it', () => {
     renderCard()
 

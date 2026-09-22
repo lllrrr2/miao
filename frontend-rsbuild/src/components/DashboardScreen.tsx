@@ -126,6 +126,8 @@ export function DashboardScreen({ app }: { app: ReturnType<typeof useAppControll
           <div className="right-column">
             <NodesCard
               nodes={app.nodes}
+              loadError={app.nodesError}
+              onRetry={app.fetchNodes}
               isInitializing={app.status.initializing}
               isReady={app.status.ready}
               delays={app.delays}
@@ -138,6 +140,8 @@ export function DashboardScreen({ app }: { app: ReturnType<typeof useAppControll
 
             <SubsCard
               subs={app.subs}
+              loadError={app.subsError}
+              onRetry={app.fetchSubs}
               refreshStatus={app.status.subscription_refresh}
               pendingActions={app.pendingActions}
               onAddSub={app.handleAddSubscription}
@@ -150,6 +154,8 @@ export function DashboardScreen({ app }: { app: ReturnType<typeof useAppControll
 
             <RulesCard
               rules={app.rules}
+              loadError={app.rulesError}
+              onRetry={app.fetchRules}
               isInitializing={app.status.initializing}
               pendingActions={app.pendingActions}
               onAddRule={app.handleAddRule}
