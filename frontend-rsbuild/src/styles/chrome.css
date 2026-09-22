@@ -247,8 +247,6 @@
 .mcp-agent-button svg {
     width: 100%;
     height: 100%;
-}
-.mcp-agent-button:not(.pi) svg {
     fill: currentColor;
 }
 .mcp-agent-button.claude {

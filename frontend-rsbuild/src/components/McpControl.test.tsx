@@ -51,17 +51,13 @@ describe('McpControl', () => {
 
       await user.click(screen.getByRole('button', { name: '复制 Claude MCP 添加命令' }))
       await user.click(screen.getByRole('button', { name: '复制 Codex MCP 添加命令' }))
-      await user.click(screen.getByRole('button', { name: '复制 Pi MCP 添加命令' }))
+      expect(screen.getAllByRole('button')).toHaveLength(2)
 
       expect(writeText).toHaveBeenNthCalledWith(1, `claude mcp add --transport http miao ${url}`)
       expect(writeText).toHaveBeenNthCalledWith(2, `codex mcp add miao --url ${url}`)
-      expect(writeText).toHaveBeenNthCalledWith(
-        3,
-        `mcp({ action: "install", url: "${url}", server: "miao" })`,
-      )
+      expect(writeText).toHaveBeenCalledTimes(2)
       expect(showToast).toHaveBeenNthCalledWith(1, '已复制 Claude MCP 添加命令', 'success')
       expect(showToast).toHaveBeenNthCalledWith(2, '已复制 Codex MCP 添加命令', 'success')
-      expect(showToast).toHaveBeenNthCalledWith(3, '已复制 Pi MCP 添加命令', 'success')
     } finally {
       if (clipboardDescriptor) Object.defineProperty(navigator, 'clipboard', clipboardDescriptor)
       else Reflect.deleteProperty(navigator, 'clipboard')
