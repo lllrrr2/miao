@@ -14,6 +14,7 @@ import { LoaderCircle, Play, RotateCw, Square, TriangleAlert, WifiOff } from 'lu
 import { ICON } from '../tokens'
 import type { useAppController } from '../hooks/useAppController'
 import { Button } from './ui'
+import { ConnectivityCheck } from './ConnectivityCheck'
 
 const PHASE_MESSAGE = {
   initializing: '正在初始化运行环境…',
@@ -89,6 +90,8 @@ export function DashboardScreen({ app }: { app: ReturnType<typeof useAppControll
           onToggleMcp={app.handleToggleMcp}
           showToast={app.showToast}
         />
+
+        <ConnectivityCheck status={app.status} backendUnreachable={app.backendUnreachable} />
 
         <div className="content-grid">
           <div className="left-column">

@@ -65,7 +65,15 @@ warnings: Array<RuntimeWarning>, vps_supported: boolean, platform: string,
  */
 mcp: boolean, };
 
-export type ConnectivityResult = { name: string, url: string, latency_ms: number | null, success: boolean, };
+export type ConnectivityResult = { name: string, url: string, latency_ms: number | null,
+/**
+ * True when an HTTP response was received, including 4xx/5xx responses.
+ */
+success: boolean, http_status: number | null,
+/**
+ * timeout, connect, or request; absent when an HTTP response was received.
+ */
+error_kind: string | null, error: string | null, };
 
 export type NodeInfo = { tag: string, server: string, server_port: number, node_type: string, sni?: string, };
 

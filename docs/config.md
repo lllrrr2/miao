@@ -45,6 +45,14 @@ scheduled_refresh:
 
 手动节点支持七种协议，见[内核能力](kernel.md#能力与裁剪)。自定义规则优先于内置分流，全局模式下仍生效；出口可填 `proxy`、`direct` 或节点 tag，引用缺失/禁用节点的规则会跳过并在面板标记。Windows 进程名需带 `.exe`。
 
+## 连接检查
+
+面板「连接检查」可对指定 HTTP/HTTPS 网址发起一次 HEAD 请求，超时为 5 秒，不修改配置。检查从 **运行 Miao 的主机**发起，不使用 HTTP_PROXY/HTTPS_PROXY 环境变量，但仍可能经过系统 TUN 和路由；它不等于浏览器或指定代理节点测试。服务就绪也不代表任意网站可达。
+
+结果显示 HTTP 状态或失败类型，并提供下一步建议和可复制报告。HTTP 403/405/503 等表示已收到响应，但不能据此宣称访问正常；部分网站不支持 HEAD。关闭弹窗不会中止检查，报告保留到下次检查完成或页面刷新。复制失败时会选中报告，方便手动复制。
+
+REST `/api/connectivity` 和 MCP `test_connectivity` 共用检查实现。结果中的 `success` 保持“收到 HTTP 响应”的含义；结合 `http_status`、`error_kind`（timeout/connect/request）和 `error` 判断，不要把后端连接失败误判成目标网站不可达。
+
 ## VPS 一键部署
 
 面板「添加节点 → VPS 部署」通过 SSH 安装 Hysteria2，也可恢复已有 Miao 部署的节点。运行 Miao 的设备须有 OpenSSH 客户端；Windows 面板不提供此功能。

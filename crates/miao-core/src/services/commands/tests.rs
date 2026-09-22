@@ -13,6 +13,82 @@ async fn tool(state: &Arc<crate::state::AppState>, name: &str, args: Value) -> V
 }
 
 #[tokio::test]
+async fn connectivity_distinguishes_http_response_from_request_failure() {
+    let (_root, state) = isolated_stopped_state(Config::default());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            axum::Router::new()
+                .route(
+                    "/ok",
+                    axum::routing::head(|| async { StatusCode::NO_CONTENT }),
+                )
+                .route(
+                    "/denied",
+                    axum::routing::head(|| async { StatusCode::FORBIDDEN }),
+                )
+                .route(
+                    "/slow",
+                    axum::routing::head(|| async {
+                        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                        StatusCode::OK
+                    }),
+                ),
+        )
+        .await
+        .unwrap();
+    });
+    for (path, expected) in [("ok", 204), ("denied", 403)] {
+        let url = format!("http://{addr}/{path}");
+        let result = service::test_connectivity(
+            state.clone(),
+            service::ConnectivityRequest { url: url.clone() },
+        )
+        .await
+        .data
+        .unwrap();
+        assert!(result.success);
+        assert_eq!(result.http_status, Some(expected));
+        assert!(result.latency_ms.is_some());
+        assert!(result.error.is_none());
+        let mcp = tool(&state, "test_connectivity", json!({"url": url})).await;
+        let text = mcp["result"]["content"][0]["text"].as_str().unwrap();
+        let payload: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(payload["http_status"], expected);
+    }
+    let result = service::test_connectivity(
+        state.clone(),
+        service::ConnectivityRequest {
+            url: format!("http://{addr}/slow"),
+        },
+    )
+    .await
+    .data
+    .unwrap();
+    assert!(!result.success);
+    assert_eq!(result.error_kind.as_deref(), Some("timeout"));
+    assert!(result.http_status.is_none());
+    assert!(result.error.is_some());
+    server.abort();
+    let result = service::test_connectivity(
+        state.clone(),
+        service::ConnectivityRequest {
+            url: "not a URL".into(),
+        },
+    )
+    .await
+    .data
+    .unwrap();
+    assert!(!result.success);
+    assert_eq!(result.error_kind.as_deref(), Some("request"));
+    assert!(result.http_status.is_none());
+    assert!(!state.config_path.exists());
+    assert!(state.sing_process.lock().await.is_none());
+}
+
+#[tokio::test]
 async fn rest_mcp_and_commands_share_initialization_and_not_found_errors() {
     let (_root, state) = isolated_stopped_state(Config::default());
     for (initializing, expected_kind, expected_status) in [

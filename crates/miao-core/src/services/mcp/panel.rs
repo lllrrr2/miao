@@ -283,7 +283,10 @@ pub(super) async fn test_connectivity(
         "url": url,
         "success": response.success,
         "latency_ms": response.latency_ms,
-        "note": "请求由 Miao 后端直连发出，不经过 HTTP_PROXY/HTTPS_PROXY 环境变量",
+        "http_status": response.http_status,
+        "error_kind": response.error_kind,
+        "error": response.error,
+        "note": "请求由 Miao 所在主机发出，不使用 HTTP_PROXY/HTTPS_PROXY 环境变量，但仍可能经过系统 TUN/路由。success 仅代表收到 HTTP 响应（含 4xx/5xx），不保证浏览器或指定代理节点可用。",
     }))
 }
 

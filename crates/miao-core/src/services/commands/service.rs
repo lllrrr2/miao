@@ -325,17 +325,32 @@ pub async fn test_connectivity(
         .send()
         .await
     {
-        Ok(_) => ConnectivityResult {
+        Ok(response) => ConnectivityResult {
             name: String::new(),
             url: req.url,
             latency_ms: Some(start.elapsed().as_millis() as u64),
             success: true,
+            http_status: Some(response.status().as_u16()),
+            error_kind: None,
+            error: None,
         },
-        Err(_) => ConnectivityResult {
+        Err(error) => ConnectivityResult {
             name: String::new(),
             url: req.url,
             latency_ms: None,
             success: false,
+            http_status: None,
+            error_kind: Some(
+                if error.is_timeout() {
+                    "timeout"
+                } else if error.is_connect() {
+                    "connect"
+                } else {
+                    "request"
+                }
+                .into(),
+            ),
+            error: Some(error.without_url().to_string()),
         },
     };
 

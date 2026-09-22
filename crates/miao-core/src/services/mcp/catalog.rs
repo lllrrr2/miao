@@ -408,7 +408,7 @@ pub(super) fn tools_catalog() -> JsonValue {
         },
         {
             "name": "test_connectivity",
-            "description": "从 Miao 后端直接对指定 http/https URL 发 HEAD 请求并返回耗时；该请求明确绕过系统代理环境变量，适合诊断直连网络。无配置副作用。",
+            "description": "从 Miao 所在主机对 http/https URL 发 HEAD 请求，返回耗时、HTTP 状态或失败原因。success 仅代表收到响应，包括 4xx/5xx。不使用代理环境变量，但仍可能经过系统 TUN/路由；不能证明指定节点或浏览器可用。无配置副作用。",
             "inputSchema": {
                 "type": "object",
                 "properties": { "url": { "type": "string", "format": "uri" } },

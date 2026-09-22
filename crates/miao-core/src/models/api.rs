@@ -128,7 +128,12 @@ pub struct ConnectivityResult {
     pub name: String,
     pub url: String,
     pub latency_ms: Option<u64>,
+    /// True when an HTTP response was received, including 4xx/5xx responses.
     pub success: bool,
+    pub http_status: Option<u16>,
+    /// timeout, connect, or request; absent when an HTTP response was received.
+    pub error_kind: Option<String>,
+    pub error: Option<String>,
 }
 
 #[derive(Deserialize)]
