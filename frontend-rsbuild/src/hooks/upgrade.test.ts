@@ -26,10 +26,10 @@ it('enforces the total deadline even when every version fetch hangs', async () =
   expect((await result as Error).message).toContain('升级结果未知')
 })
 
-it('does not claim success or certain rollback when the old version remains', async () => {
+it.each(['0.48.1', 'v0.48.1'])('does not claim success or certain rollback when the old version remains: %s', async (previous) => {
   rs.useFakeTimers()
   rs.stubGlobal('fetch', rs.fn(async () => ({ ok: true, json: async () => ({ success: true, data: { current: '0.48.1' } }) })))
-  const result = waitForUpgrade('0.49.0', '0.48.1').catch(error => error)
+  const result = waitForUpgrade('0.49.0', previous).catch(error => error)
   await rs.advanceTimersByTimeAsync(UPGRADE_RESTART_TIMEOUT_MS)
   expect((await result as Error).message).toContain('可能尚未重启或已回滚')
 })

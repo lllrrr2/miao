@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, rs } from '@rstest/core'
 import App from './App'
+import { RequestInterruptedError } from './hooks/request'
 import { nodeMock, statusMock, subMock, subscriptionRefreshMock } from './testFixtures'
 
 function jsonResponse(payload: unknown, status = 200) {
@@ -81,9 +82,10 @@ describe('App onboarding integration', () => {
     expect(screen.getByText(/VPS 部署记录 · 已完成/)).toBeInTheDocument()
   })
 
-  it('reports upgrade acceptance, then restores the button when only the old version returns', async () => {
+  it('reports upgrade installation, then restores the button when only the old version returns', async () => {
     rs.useFakeTimers()
     let upgrades = 0
+    let finishUpgrade!: (response: ReturnType<typeof jsonResponse>) => void
     rs.stubGlobal('fetch', rs.fn(async (input) => {
       const url = String(input)
       if (url === '/api/status') return jsonResponse({ success: true, data: statusMock() })
@@ -92,7 +94,7 @@ describe('App onboarding integration', () => {
       if (url === '/api/version') return jsonResponse({ success: true, data: {
         current: '0.48.1', latest: 'v0.49.0', has_update: true, download_url: null, upgrade_supported: true,
       } })
-      if (url === '/api/upgrade') { upgrades++; return jsonResponse({ success: true, message: 'accepted' }) }
+      if (url === '/api/upgrade') { upgrades++; return new Promise<ReturnType<typeof jsonResponse>>(resolve => { finishUpgrade = resolve }) }
       throw new Error(`Unexpected request: ${url}`)
     }))
     stubMatchMedia()
@@ -101,13 +103,76 @@ describe('App onboarding integration', () => {
     fireEvent.click(screen.getByRole('button', { name: /0\.48\.1\s*可更新至 v0\.49\.0/ }))
     fireEvent.click(screen.getByRole('button', { name: '确认' }))
     await act(async () => { await rs.advanceTimersByTimeAsync(0) })
-    expect(screen.getByText('升级请求已接受，等待目标版本启动…')).toBeInTheDocument()
+    expect(screen.getByText(/正在请求升级 0.48.1 → v0.49.0/)).toBeInTheDocument()
+    await act(async () => { finishUpgrade(jsonResponse({ success: true, data: 'v0.49.0' })) })
+    expect(screen.getByText(/后端已完成安装，正在确认 v0.49.0 启动/)).toBeInTheDocument()
     expect(screen.queryByText('更新成功，等待服务重启…')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /0\.48\.1\s*可更新至 v0\.49\.0/ })).toBeDisabled()
     await act(async () => { await rs.advanceTimersByTimeAsync(30_000) })
     expect(screen.getByText(/可能尚未重启或已回滚/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /0\.48\.1\s*可更新至 v0\.49\.0/ })).not.toBeDisabled()
     expect(upgrades).toBe(1)
+  })
+
+  it.each([
+    [new TypeError('Failed to fetch'), /升级请求连接中断/, /可能尚未重启或已回滚/],
+    [new RequestInterruptedError('timeout'), /升级请求连接中断/, /可能尚未重启或已回滚/],
+    ['v0.50.0', /正在确认 v0.50.0 启动/, /当前版本为 0.49.0/],
+  ])('keeps verifying uncertain requests and uses the installed target: %s', async (outcome, progress, error) => {
+    rs.useFakeTimers()
+    let upgrades = 0
+    rs.stubGlobal('fetch', rs.fn(async (input) => {
+      const url = String(input)
+      if (url === '/api/status') return jsonResponse({ success: true, data: statusMock() })
+      if (url === '/api/subs') return jsonResponse({ success: true, data: [subMock()] })
+      if (url === '/api/nodes' || url === '/api/rules') return jsonResponse({ success: true, data: [] })
+      if (url === '/api/version') return jsonResponse({ success: true, data: {
+        current: upgrades && typeof outcome === 'string' ? '0.49.0' : '0.48.1', latest: 'v0.49.0', has_update: true,
+      } })
+      if (url === '/api/upgrade') {
+        upgrades++
+        if (outcome instanceof Error) throw outcome
+        return jsonResponse({ success: true, data: outcome })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+    stubMatchMedia()
+    render(<App />)
+    await act(async () => { await rs.advanceTimersByTimeAsync(0) })
+    fireEvent.click(screen.getByRole('button', { name: /可更新至 v0\.49\.0/ }))
+    fireEvent.click(screen.getByRole('button', { name: '确认' }))
+    await act(async () => { await rs.advanceTimersByTimeAsync(4000) })
+    expect(screen.getByText(progress)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /可更新至 v0\.49\.0/ })).toBeDisabled()
+    await act(async () => { await rs.advanceTimersByTimeAsync(26_000) })
+    expect(screen.getByText(error)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /可更新至 v0\.49\.0/ })).not.toBeDisabled()
+    expect(upgrades).toBe(1)
+  })
+
+  it.each([
+    [true, '后端已是最新版本，无需升级'],
+    [false, '下载校验失败'],
+  ])('does not wait for restart after a no-op or rejected upgrade: %s', async (success, message) => {
+    rs.useFakeTimers()
+    rs.stubGlobal('fetch', rs.fn(async (input) => {
+      const url = String(input)
+      if (url === '/api/status') return jsonResponse({ success: true, data: statusMock() })
+      if (url === '/api/subs') return jsonResponse({ success: true, data: [subMock()] })
+      if (url === '/api/nodes' || url === '/api/rules') return jsonResponse({ success: true, data: [] })
+      if (url === '/api/version') return jsonResponse({ success: true, data: { current: '0.48.1', latest: 'v0.49.0', has_update: true } })
+      if (url === '/api/upgrade') return jsonResponse({ success, message: success ? 'Already up to date' : message })
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+    stubMatchMedia()
+    render(<App />)
+    await act(async () => { await rs.advanceTimersByTimeAsync(0) })
+    fireEvent.click(screen.getByRole('button', { name: /可更新至 v0\.49\.0/ }))
+    fireEvent.click(screen.getByRole('button', { name: '确认' }))
+    await act(async () => { await rs.advanceTimersByTimeAsync(0) })
+    expect(screen.getByText(message)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /可更新至 v0\.49\.0/ })).not.toBeDisabled()
+    expect(screen.queryByText(/正在确认.*启动|升级请求连接中断/)).not.toBeInTheDocument()
   })
 
   it('adds the first subscription and leaves onboarding', async () => {

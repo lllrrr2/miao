@@ -44,6 +44,12 @@ export function DashboardScreen({ app }: { app: ReturnType<typeof useAppControll
   return (
     <div className="shell">
       <main className="workspace">
+        {app.upgrading && (
+          <div className="runtime-banner" role="status">
+            <LoaderCircle size={ICON.sm} className="spin" />
+            <span>{app.upgradeMessage}</span>
+          </div>
+        )}
         {app.backendUnreachable && (
           <div className="offline-banner" role="alert">
             <WifiOff size={ICON.sm} />

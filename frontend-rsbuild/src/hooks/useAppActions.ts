@@ -1,8 +1,9 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { CONNECTIONS_MODAL_MIN_WIDTH } from '../tokens'
 import { validateSubscriptionUrl } from '../utils'
 import { buildNodeRequest } from '../nodeForm'
 import { waitForUpgrade } from './upgrade'
+import { RequestInterruptedError } from './request'
 import { useVpsDeployment } from './useVpsDeployment'
 import type { useAppData } from './useAppData'
 import type {
@@ -38,6 +39,7 @@ function errorMessage(error: unknown): string {
 
 export function useAppActions(data: AppData) {
   const { vpsTasks, vpsDeploying, handleDeployVps } = useVpsDeployment(data)
+  const [upgradeMessage, setUpgradeMessage] = useState('')
   const {
     status,
     apiCall,
@@ -427,10 +429,23 @@ export function useAppActions(data: AppData) {
     const currentVersion = versionInfo.current
     openConfirm('更新确认', `确定要从 ${currentVersion} 更新到 ${targetVersion} 吗？更新过程中服务会短暂中断。`, async () => {
       setUpgrading(true)
+      setUpgradeMessage(`正在请求升级 ${currentVersion} → ${targetVersion}；后端可能需要下载、校验和安装，请勿关闭或刷新页面。`)
       try {
-        await apiCall('upgrade', { method: 'POST' })
-        showToast('升级请求已接受，等待目标版本启动…', 'info')
-        await waitForUpgrade(targetVersion, currentVersion)
+        let installedVersion = targetVersion
+        try {
+          const response = await apiCall<string>('upgrade', { method: 'POST' })
+          if (!response.data) {
+            await fetchVersion()
+            showToast('后端已是最新版本，无需升级', 'info')
+            return
+          }
+          installedVersion = response.data
+          setUpgradeMessage(`后端已完成安装，正在确认 ${installedVersion} 启动；短暂断连属于正常现象，请勿重复升级。`)
+        } catch (error) {
+          if (!(error instanceof RequestInterruptedError || error instanceof TypeError)) throw error
+          setUpgradeMessage(`升级请求连接中断，结果未知；正在核对 ${installedVersion} 是否启动，请勿重复升级。`)
+        }
+        await waitForUpgrade(installedVersion, currentVersion)
         window.location.reload()
       } catch (error) {
         showToast(errorMessage(error), 'error')
@@ -524,6 +539,7 @@ export function useAppActions(data: AppData) {
     handleOpenConnections,
     handleStartService,
     handleUpgradeClick,
+    upgradeMessage,
     handleOpenDeleteNodeConfirm,
     handleOpenDeleteSubConfirm,
     handleSetNodeDisabled,

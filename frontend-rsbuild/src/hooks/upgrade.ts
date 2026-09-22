@@ -22,7 +22,7 @@ export async function waitForUpgrade(target: string, previous: string): Promise<
       // A restart temporarily makes the endpoint unreachable.
     }
   }
-  if (observed === previous) {
+  if (observed?.replace(/^v/, '') === previous.replace(/^v/, '')) {
     throw new Error('尚未确认目标版本，服务仍报告旧版本（可能尚未重启或已回滚）；请刷新状态确认，勿重复升级')
   }
   throw new Error(observed
