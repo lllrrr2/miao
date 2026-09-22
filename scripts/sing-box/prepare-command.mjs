@@ -29,6 +29,6 @@ function replaceExactlyOnce(name, before, after) {
 replaceExactlyOnce('cmd.go', 'Use:              "sing-box",', 'Use:              "miao-kernel",')
 replaceExactlyOnce('cmd_version.go', '"sing-box version "', '"miao-kernel version "')
 
-for (const name of ['miao_context_test.go', 'miao_registry_test.go', 'miao_config_test.go']) {
+for (const name of ['miao_context_test.go', 'miao_registry_test.go', 'miao_config_test.go', 'miao_shadowsocks_test.go']) {
   copyFileSync(fileURLToPath(new URL(`./tests/${name}`, import.meta.url)), join(target, name))
 }

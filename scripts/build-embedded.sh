@@ -114,6 +114,22 @@ MIAO_REGISTRY_SNAPSHOT="$registry_snapshot" MIAO_CAPTURE_REGISTRIES=1 \
 echo "==> Building host sing-box ($host_goarch) for rule compilation..."
 "${go_command[@]}" build "${build_flags[@]}" -o "$artifacts/sing-box-host" ./cmd/sing-box
 
+# Patch a private dependency copy, never the shared Go module cache. Keep the
+# replacement relative so temporary checkout paths do not enter build metadata.
+echo "==> Applying Shadowsocks AEAD half-close fix..."
+ss_module=github.com/sagernet/sing-shadowsocks2
+ss_version=$("${go_command[@]}" list -mod=readonly -m -f '{{.Version}}{{if .Replace}} replaced{{end}}' "$ss_module")
+if [[ "$ss_version" != v0.2.1 ]]; then
+  echo "Shadowsocks dependency changed; review shadowsocks2-halfclose.patch" >&2
+  exit 1
+fi
+ss_dir=$("${go_command[@]}" list -mod=readonly -m -f '{{.Dir}}' "$ss_module")
+cp -R "$ss_dir" miao-shadowsocks2
+chmod -R u+w miao-shadowsocks2
+git apply --check --directory=miao-shadowsocks2 "$KERNEL_DIR/shadowsocks2-halfclose.patch"
+git apply --directory=miao-shadowsocks2 "$KERNEL_DIR/shadowsocks2-halfclose.patch"
+"${go_command[@]}" mod edit "-replace=$ss_module@v0.2.1=./miao-shadowsocks2"
+
 echo "==> Applying Miao client profile..."
 git apply --check "$KERNEL_DIR/client.patch"
 git apply "$KERNEL_DIR/client.patch"

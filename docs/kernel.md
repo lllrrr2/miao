@@ -32,7 +32,7 @@ MIAO_TARGET=windows-amd64 ./scripts/build-embedded.sh --kernel-only
 
 需要 Git、Go、Bun、curl。去掉 `--kernel-only` 会同时更新分流规则；`SING_GEOIP_REF` / `DIRECT_RULES_REF` 可指定分支、tag 或 SHA，Release CI 在一次发布内固定规则快照。`SING_BOX_REF` 只允许等于清单中的 SHA。
 
-构建先验证未修改的上游并编译 host 规则编译器，再应用补丁、组装客户端命令、运行客户端回归，最后编译和压缩。全部成功后才写入 `embedded/`：
+构建先验证未修改的上游并编译 host 规则编译器，再应用补丁、组装客户端命令、运行客户端回归，最后编译和压缩。客户端还应用 [`shadowsocks2-halfclose.patch`](../scripts/sing-box/shadowsocks2-halfclose.patch)：只复制固定的 `sing-shadowsocks2 v0.2.1` 到临时源码目录并用相对路径 `replace`，不修改共享 Go 缓存；依赖版本漂移时停止构建，要求重新审查补丁。全部成功后才写入 `embedded/`：
 
 | 文件 | 用途 |
 | --- | --- |
@@ -75,7 +75,17 @@ testing 曾重写历史，固定 SHA 只能保证内容，不能保证对象永�
 
 2026-09-22 补验当前固定内核：两个独立 Linux 网络命名空间中，分别启用和关闭 `auto_redirect`，本地 DNS 劫持、direct/Shadowsocks TCP 256 KiB、UDP 64/8192/16000 B、Clash 连接链和流量计数、连续 5 次重载及退出清理均通过。三目标内嵌资源的清单及压缩前后哈希也已核对；未更换内核。
 
-额外的 half-close 验收**未全部通过**：本地服务在读到 EOF 后才回复，客户端 `shutdown(SHUT_WR)` 后 direct 能收到回复，但 Shadowsocks AEAD (`aes-128-gcm`) 链路收到零字节 EOF，两种 TUN 模式均可复现。当前依赖的 AEAD 包装没有提供 `CloseWrite`，不能将通用复制层的修复等同于该协议链路已支持半关闭；尚未做旧版本对照，不判定为本次升级回归。Windows/OpenWrt 真机及其他协议、传输仍待验收。
+miao.6 的额外 half-close 验收**未全部通过**：本地服务在读到 EOF 后才回复，客户端 `shutdown(SHUT_WR)` 后 direct 能收到回复，但 Shadowsocks AEAD (`aes-128-gcm`) 链路收到零字节 EOF，两种 TUN 模式均可复现。当时依赖的 AEAD 包装没有提供 `CloseWrite`，不能将通用复制层的修复等同于该协议链路已支持半关闭；尚未做旧版本对照，不判定为本次升级回归。Windows/OpenWrt 真机及其他协议、传输仍待验收。
+
+### AEAD 半关闭修复（miao.7）
+
+保持同一上游 SHA 和 Go 工具链，客户端版本递增至 `1.15.0-alpha.6+miao.7.fcc7e76d`。实际出站依赖是 `sing-shadowsocks2 v0.2.1`；旧的 `sing-shadowsocks v0.2.8` 用于上游服务端，不能混淆两者。
+
+补丁仅为经典 AEAD 和 AEAD-2022 客户端连接添加 `CloseWrite`：尚未发送请求时先写入加密目的地址，然后传播底层写端关闭，保留响应方向。只通过已有可替换/计数包装规则寻找半关闭能力；不将加密层标记为可绕过。不支持半关闭的底层传输保持原有完整关闭行为，不谎报成功而让对端等待 EOF。
+
+[`miao_shadowsocks_test.go`](../scripts/sing-box/tests/miao_shadowsocks_test.go) 使用真实 loopback TCP 和独立服务端实现，覆盖空请求、多加密帧、EOF 后响应、半关闭后写入失败、不透明传输包装退回完整关闭，以及请求/FIN 错误传播。未打补丁时缺少 `CloseWrite` 的测试失败；补丁后的客户端构建将这些回归与原有能力、配置测试一起重复 20 次。不扩展为所有插件或多路复用均支持半关闭的承诺。
+
+2026-09-22 本地验证：三目标构建及产物哈希/解压校验、每目标 Go 回归 ×20、半关闭竞态检测 ×20、Rust 490 项测试（另 1 项忽略）、Clippy、Windows core 交叉检查、Bun 23 项脚本测试和 ShellCheck 均通过。两个隔离 Linux 网络命名空间中，开启/关闭 `auto_redirect` 分别验证 direct 与 Shadowsocks：空请求和 131071 字节请求半关闭后均收到完整响应；DNS 劫持、TCP 256 KiB、UDP 64/8192/16000 B、Clash 连接链/计数、连续 5 次重载和退出清理均通过。未部署生产；Windows/OpenWrt 真机仍未验收。
 
 ## 来源与许可
 
