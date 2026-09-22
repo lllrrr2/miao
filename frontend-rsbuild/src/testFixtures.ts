@@ -1,9 +1,13 @@
 // 测试夹具工厂：构造满足 API/Clash 类型的 mock，默认值与运行时零值一致。
 // 只被 *.test.* 引用；新增必填字段时在这里补默认值，测试只覆盖差异字段。
 import type {
-  ConnectivityResult, NodeInfo, RuleInfo, ScheduledRefreshStatus, StatusData, SubNodeInfo, SubNodesInfo, SubStatus,
+  ConnectivityResult, NodeInfo, RuleInfo, ScheduledRefreshStatus, StatusData, SubNodeInfo, SubNodesInfo, SubStatus, SubscriptionRefreshResult,
 } from './types/api'
 import type { ConnectionGroup, EnrichedConnection } from './types/clash'
+
+export function subscriptionRefreshMock(overrides: Partial<SubscriptionRefreshResult> = {}): SubscriptionRefreshResult {
+  return { refreshed: true, fetch_succeeded: true, report: { successful_sources: 1, failed_sources: 0, fresh_nodes: 3, cached_nodes: 0 }, runtime_updated: false, started: false, reloaded: false, restarted: false, warning: null, ...overrides }
+}
 
 export function connectivityMock(overrides: Partial<ConnectivityResult> = {}): ConnectivityResult {
   return { name: '', url: 'https://example.com/', success: true, latency_ms: 73, http_status: 204, error_kind: null, error: null, ...overrides }

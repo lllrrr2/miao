@@ -27,6 +27,7 @@ import type {
   ScheduledRefreshRequest,
   SubBatchResult,
   VergeImportResult,
+  SubscriptionRefreshResult,
 } from '../types/api'
 
 type AppData = ReturnType<typeof useAppData>
@@ -271,14 +272,25 @@ export function useAppActions(data: AppData) {
 
   const handleRefreshSubscriptions = useCallback(async () => {
     try {
-      await apiCall('subs/refresh', { method: 'POST' }, 'refreshSubs')
-      await fetchSubs()
+      const response = await apiCall<SubscriptionRefreshResult>('subs/refresh', { method: 'POST' }, 'refreshSubs')
+      await Promise.all([fetchSubs(), fetchStatus()])
       clearDelays()
-      showToast('订阅已刷新', 'success')
+      const result = response.data
+      if (!result) {
+        showToast('刷新请求已处理；后端未提供详细结果，请查看订阅状态。', 'info')
+      } else if (!result.fetch_succeeded) {
+        showToast('订阅获取失败，已保留原配置。请查看订阅错误详情。', 'error')
+      } else if (result.report?.failed_sources > 0) {
+        showToast(`订阅部分获取成功：成功 ${result.report.successful_sources} 个，失败 ${result.report.failed_sources} 个。请查看订阅详情。${result.warning || ''}`, 'error')
+      } else if (result.warning) {
+        showToast(`订阅刷新有告警：${result.warning}`, 'error')
+      } else {
+        showToast(result.runtime_updated ? '订阅已获取，代理配置已更新' : '订阅已获取，代理运行状态未改变', 'success')
+      }
     } catch (error) {
       showToast(errorMessage(error), 'error')
     }
-  }, [apiCall, clearDelays, fetchSubs, showToast])
+  }, [apiCall, clearDelays, fetchSubs, fetchStatus, showToast])
 
   const handleOpenRefreshSubscriptionsConfirm = useCallback(() => {
     openConfirm(

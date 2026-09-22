@@ -59,13 +59,13 @@ pub async fn edit_subscriptions<T>(
     state: &Arc<AppState>,
     force_refresh: bool,
     mutate: impl FnOnce(&mut Vec<String>) -> Result<T, String>,
-) -> Result<(T, RuntimeUpdate, bool), ConfigMutationError> {
+) -> Result<(T, RuntimeUpdate, crate::models::SubscriptionFetchReport), ConfigMutationError> {
     let guard = state.config_update.lock().await;
     let before = state.config_with_preferences().await;
     let mut candidate = before.clone();
     let value = mutate(&mut candidate.subs).map_err(ConfigMutationError::Rejected)?;
     if !force_refresh && candidate.subs == before.subs {
-        return Ok((value, RuntimeUpdate::None, false));
+        return Ok((value, RuntimeUpdate::None, Default::default()));
     }
     let generation = state.next_sub_refresh();
     let _foreground = state.subscription_refresh.foreground(generation);
@@ -87,7 +87,8 @@ pub async fn edit_subscriptions<T>(
     new_config
         .disabled_nodes
         .retain(|entry| new_config.subs.contains(&entry.sub));
-    let accepted_response = fetched.report.accepted_response();
+    let report = fetched.report;
+    let accepted_response = report.accepted_response();
     let update = if new_config.subs == old_config.subs {
         regenerate_from_source(
             &old_config,
@@ -112,7 +113,7 @@ pub async fn edit_subscriptions<T>(
             .sub_refresh_success_generation
             .store(generation, Ordering::Relaxed);
     }
-    Ok((value, update, accepted_response))
+    Ok((value, update, report))
 }
 
 pub async fn refresh_subscriptions_foreground(
@@ -120,12 +121,11 @@ pub async fn refresh_subscriptions_foreground(
 ) -> Result<SubscriptionRefreshOutcome, ConfigMutationError> {
     edit_subscriptions(state, true, |_| Ok(()))
         .await
-        .map(
-            |(_, runtime_update, fetch_succeeded)| SubscriptionRefreshOutcome {
-                fetch_succeeded,
-                runtime_update,
-            },
-        )
+        .map(|(_, runtime_update, report)| SubscriptionRefreshOutcome {
+            fetch_succeeded: report.accepted_response(),
+            report,
+            runtime_update,
+        })
 }
 
 #[cfg(all(test, unix))]

@@ -23,6 +23,13 @@ export type SubscriptionRefreshPhase = "idle" | "fetching" | "waiting" | "comple
 
 export type SubscriptionRefreshStatus = { phase: SubscriptionRefreshPhase, outcome: SubscriptionFetchOutcome, report: SubscriptionFetchReport, retry_in_secs: number | null, };
 
+export type SubscriptionRefreshResult = {
+/**
+ * Compatibility alias for existing MCP consumers. It now carries the
+ * truthful fetch result instead of being unconditionally true.
+ */
+refreshed: boolean, fetch_succeeded: boolean, report: SubscriptionFetchReport, runtime_updated: boolean, started: boolean, reloaded: boolean, restarted: boolean, warning: string | null, };
+
 export type RuntimeWarningSeverity = "warning" | "error" | "info";
 
 export type RuntimeWarning = { code: string, message: string, severity: RuntimeWarningSeverity, };

@@ -75,6 +75,7 @@ impl RuntimeUpdate {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SubscriptionRefreshOutcome {
     pub fetch_succeeded: bool,
+    pub report: crate::models::SubscriptionFetchReport,
     pub runtime_update: RuntimeUpdate,
 }
 

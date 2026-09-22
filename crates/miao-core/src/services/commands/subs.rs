@@ -335,11 +335,13 @@ pub async fn delete_sub(state: Arc<AppState>, req: SubRequest) -> CommandResult 
 }
 
 #[derive(Debug, serde::Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct SubscriptionRefreshResult {
     /// Compatibility alias for existing MCP consumers. It now carries the
     /// truthful fetch result instead of being unconditionally true.
     pub refreshed: bool,
     pub fetch_succeeded: bool,
+    pub report: crate::models::SubscriptionFetchReport,
     pub runtime_updated: bool,
     pub started: bool,
     pub reloaded: bool,
@@ -374,6 +376,7 @@ pub async fn refresh_subs(state: Arc<AppState>) -> CommandResult<SubscriptionRef
         SubscriptionRefreshResult {
             refreshed: outcome.fetch_succeeded,
             fetch_succeeded: outcome.fetch_succeeded,
+            report: outcome.report,
             runtime_updated: update.updated(),
             started: update == crate::services::config::RuntimeUpdate::Started,
             reloaded: update == crate::services::config::RuntimeUpdate::Reloaded,

@@ -333,6 +333,7 @@ fn subscription_refresh_result_preserves_the_refreshed_compatibility_field() {
         let result = subs::SubscriptionRefreshResult {
             refreshed: fetch_succeeded,
             fetch_succeeded,
+            report: Default::default(),
             runtime_updated: false,
             started: false,
             reloaded: false,
@@ -343,6 +344,59 @@ fn subscription_refresh_result_preserves_the_refreshed_compatibility_field() {
         assert_eq!(value["refreshed"], fetch_succeeded);
         assert_eq!(value["refreshed"], value["fetch_succeeded"]);
     }
+}
+
+#[tokio::test]
+#[cfg(unix)]
+async fn rest_subscription_refresh_retains_failed_fetch_details() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_root, state) = isolated_stopped_state(Config {
+        subs: vec!["not a URL".into()],
+        nodes: vec![json!({"type":"shadowsocks", "tag":"manual", "server":"127.0.0.1", "server_port":443, "method":"aes-128-gcm", "password":"demo"}).to_string()],
+        ..Config::default()
+    });
+    let kernel = state.runtime_paths.runtime_dir.join("sing-box");
+    std::fs::write(&kernel, "#!/bin/sh\n[ \"$1\" = check ]\n").unwrap();
+    std::fs::set_permissions(&kernel, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let Json(reply) = crate::handlers::subs::refresh_subs(State(state.clone()))
+        .await
+        .unwrap_or_else(|(_, Json(error))| panic!("{}", error.message));
+    assert!(
+        reply.success,
+        "the request completed, not the network fetch"
+    );
+    let result = reply.data.expect("REST must retain the fetch result");
+    assert!(!result.fetch_succeeded);
+    assert!(!result.refreshed);
+    assert!(!result.runtime_updated);
+    assert_eq!(result.report.failed_sources, 1);
+    assert_eq!(result.report.successful_sources, 0);
+    assert!(state.sing_process.lock().await.is_none());
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            axum::Router::new().route("/sub", axum::routing::get(|| async { "proxies: []" })),
+        )
+        .await
+        .unwrap();
+    });
+    state.config.write().await.subs.extend([
+        format!("http://{addr}/sub?a"),
+        format!("http://{addr}/sub?b"),
+    ]);
+    let Json(reply) = crate::handlers::subs::refresh_subs(State(state.clone()))
+        .await
+        .unwrap_or_else(|(_, Json(error))| panic!("{}", error.message));
+    server.abort();
+    let result = reply.data.unwrap();
+    assert!(result.fetch_succeeded);
+    assert_eq!(result.report.successful_sources, 2);
+    assert_eq!(result.report.failed_sources, 1);
+    assert_eq!(result.report.fresh_nodes, 0);
+    assert!(!result.runtime_updated);
 }
 
 #[tokio::test]

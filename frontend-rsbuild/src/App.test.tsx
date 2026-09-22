@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, rs } from '@rstest/core'
 import App from './App'
-import { nodeMock, statusMock, subMock } from './testFixtures'
+import { nodeMock, statusMock, subMock, subscriptionRefreshMock } from './testFixtures'
 
 function jsonResponse(payload: unknown, status = 200) {
   return {
@@ -26,6 +26,32 @@ describe('App onboarding integration', () => {
   afterEach(() => {
     rs.useRealTimers()
     rs.unstubAllGlobals()
+  })
+
+  it.each([
+    [subscriptionRefreshMock({ fetch_succeeded: false, refreshed: false }), '订阅获取失败，已保留原配置。请查看订阅错误详情。'],
+    [subscriptionRefreshMock({ warning: '部分订阅失败，使用缓存' }), '订阅刷新有告警：部分订阅失败，使用缓存'],
+    [subscriptionRefreshMock({ report: { successful_sources: 2, failed_sources: 1, fresh_nodes: 7, cached_nodes: 3 } }), '订阅部分获取成功：成功 2 个，失败 1 个。请查看订阅详情。'],
+    [subscriptionRefreshMock({ runtime_updated: true }), '订阅已获取，代理配置已更新'],
+    [subscriptionRefreshMock(), '订阅已获取，代理运行状态未改变'],
+    [null, '刷新请求已处理；后端未提供详细结果，请查看订阅状态。'],
+  ])('reports the actual manual refresh result: %j', async (data, message) => {
+    rs.stubGlobal('fetch', rs.fn(async (input) => {
+      const url = String(input)
+      if (url === '/api/status') return jsonResponse({ success: true, data: statusMock() })
+      if (url === '/api/subs') return jsonResponse({ success: true, data: [subMock()] })
+      if (url === '/api/nodes' || url === '/api/rules') return jsonResponse({ success: true, data: [] })
+      if (url === '/api/version') return jsonResponse({ success: true, data: { current: '0.48.1', latest: null, has_update: false } })
+      if (url === '/api/subs/refresh') return jsonResponse({ success: true, data })
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+    stubMatchMedia()
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: '刷新订阅' }))
+    await user.click(screen.getByRole('button', { name: '确认' }))
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(screen.queryByText('订阅已刷新')).not.toBeInTheDocument()
   })
 
   it('retains deployment results after closing the pane without closing a subsequently opened dialog', async () => {

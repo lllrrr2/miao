@@ -371,6 +371,11 @@
 .list-row-meta.error {
     color: var(--danger);
 }
+.list-row-meta.subscription-feedback {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: var(--lh-normal);
+}
 /* 可点击的元信息行（订阅的「N 个节点」→ 订阅详情弹窗）：紫 = 交互 */
 .list-row-meta.meta-link {
     /* 按钮复位：对齐 .list-row-meta 的排版 */

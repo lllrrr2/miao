@@ -83,6 +83,7 @@ describe('SubsCard subscription detail entry', () => {
     renderCard({ subs: [sub], onToggleNodeDisabled })
 
     expect(screen.getByText('Request timeout')).toBeInTheDocument()
+    expect(screen.getByText('保留上次获取的 2 个缓存节点，不代表本次获取成功')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '2 个节点' }))
     await user.click(await screen.findByRole('switch', { name: '禁用节点 缓存节点' }))
     expect(onToggleNodeDisabled).toHaveBeenCalledWith(sub.url, '缓存节点', true)
@@ -115,6 +116,23 @@ describe('SubsCard subscription detail entry', () => {
 })
 
 describe('SubsCard header actions', () => {
+  it('distinguishes partial fetch results from cached nodes without claiming activation', () => {
+    renderCard({ refreshStatus: {
+      phase: 'completed', outcome: 'partial_failure', retry_in_secs: null,
+      report: { successful_sources: 2, failed_sources: 1, fresh_nodes: 7, cached_nodes: 3 },
+    } })
+    expect(screen.getByRole('status')).toHaveTextContent('成功 2 个订阅，失败 1 个订阅；本次获取 7 个节点，保留 3 个缓存节点。获取结果不代表配置已生效。')
+  })
+
+  it('hides the previous fetch result while a manual refresh is pending', () => {
+    renderCard({ pendingActions: new Set(['refreshSubs']), refreshStatus: {
+      ...statusMock().subscription_refresh, phase: 'completed', outcome: 'success',
+    } })
+    expect(screen.getByRole('status')).toHaveTextContent('正在获取订阅并检查配置')
+    expect(screen.queryByText(/最近一次获取/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '刷新订阅' })).toBeDisabled()
+  })
+
   it('shows background retry independently and leaves manual refresh available', () => {
     renderCard({ refreshStatus: {
       ...statusMock().subscription_refresh, phase: 'waiting', retry_in_secs: 1800,

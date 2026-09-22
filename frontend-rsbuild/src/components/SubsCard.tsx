@@ -55,6 +55,9 @@ const SubRow = memo(function SubRow({ sub, onDelete, onShowNodes, disabled }: Su
                   : sub.error || '获取失败'}
           </div>
         )}
+        {!pending && !sub.success && sub.node_count > 0 && (
+          <div className="list-row-meta subscription-feedback">保留上次获取的 {sub.node_count} 个缓存节点，不代表本次获取成功</div>
+        )}
       </div>
       <button
         className="icon-button subtle"
@@ -201,6 +204,18 @@ export function SubsCard({ subs, refreshStatus, pendingActions, onAddSub, onDele
       }
     >
       <div className="list-stack">
+        {subs.length > 0 && (refreshing || refreshStatus?.phase === 'fetching') && (
+          <div className="list-row" role="status">
+            <div className="list-row-meta">正在获取订阅并检查配置，请稍候…</div>
+          </div>
+        )}
+        {subs.length > 0 && !refreshing && refreshStatus && refreshStatus.phase !== 'fetching' && refreshStatus.outcome !== 'not_requested' && (
+          <div className="list-row" role="status">
+            <div className="list-row-meta subscription-feedback">
+              最近一次获取：成功 {refreshStatus.report.successful_sources} 个订阅，失败 {refreshStatus.report.failed_sources} 个订阅；本次获取 {refreshStatus.report.fresh_nodes} 个节点，保留 {refreshStatus.report.cached_nodes} 个缓存节点。获取结果不代表配置已生效。
+            </div>
+          </div>
+        )}
         {subs.length > 0 && refreshStatus?.phase === 'waiting' && (
           <div className="list-row" role="status">
             <div className="list-row-meta">
