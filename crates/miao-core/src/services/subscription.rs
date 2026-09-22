@@ -53,6 +53,14 @@ pub struct FetchResult {
     pub filtered_info_count: usize,
 }
 
+// Bound downloaded material before allocating a YAML tree, including responses
+// without Content-Length. Oversized sources are failures, never empty pools.
+const MAX_SUBSCRIPTION_BYTES: usize = 4 * 1024 * 1024;
+
+fn oversized_subscription() -> FetchError {
+    FetchError::parse(AppError::message("订阅内容超过 4 MiB 上限"))
+}
+
 const STRONG_INFO_NAME_MARKERS: &[&str] = &[
     "剩余流量",
     "流量剩余",
@@ -157,7 +165,7 @@ fn filter_informational_nodes(
 }
 
 pub async fn fetch_sub(link: &str, client: &reqwest::Client) -> Result<FetchResult, FetchError> {
-    let res = client
+    let mut res = client
         .get(link)
         .timeout(std::time::Duration::from_secs(30))
         .header("User-Agent", "clash-meta")
@@ -172,12 +180,25 @@ pub async fn fetch_sub(link: &str, client: &reqwest::Client) -> Result<FetchResu
             )
         })?;
 
-    let text = res.text().await.map_err(|e| {
+    if res
+        .content_length()
+        .is_some_and(|length| length > MAX_SUBSCRIPTION_BYTES as u64)
+    {
+        return Err(oversized_subscription());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = res.chunk().await.map_err(|e| {
         FetchError::request(
             format!("Failed to read subscription response from {}", link),
             e,
         )
-    })?;
+    })? {
+        if chunk.len() > MAX_SUBSCRIPTION_BYTES - bytes.len() {
+            return Err(oversized_subscription());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let text = String::from_utf8_lossy(&bytes);
 
     let parse_result = parse_clash_proxies(&text).map_err(|e| {
         FetchError::parse(AppError::context(
@@ -212,6 +233,77 @@ pub async fn fetch_sub(link: &str, client: &reqwest::Client) -> Result<FetchResu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn subscription_byte_limit_covers_chunked_and_fixed_length_bodies() {
+        use axum::{
+            body::{Body, Bytes},
+            routing::get,
+            Router,
+        };
+
+        for chunked in [false, true] {
+            for extra in [0, 1] {
+                // One real node followed by a comment: exactly 4 MiB must parse;
+                // one byte more must fail, even without a Content-Length header.
+                let mut yaml = "proxies:\n- {name: bounded, type: ss, server: example.com, port: 8388, cipher: aes-128-gcm, password: pass}\n#".to_string();
+                yaml.push_str(&"x".repeat(4 * 1024 * 1024 + extra - yaml.len()));
+                let data = Bytes::from(yaml);
+                let app = Router::new().route(
+                    "/sub",
+                    get(move || {
+                        let data = data.clone();
+                        async move {
+                            if chunked {
+                                let chunks: Vec<_> = data
+                                    .chunks(8192)
+                                    .map(|chunk| {
+                                        Ok::<_, std::io::Error>(Bytes::copy_from_slice(chunk))
+                                    })
+                                    .collect();
+                                Body::from_stream(futures::stream::iter(chunks))
+                            } else {
+                                Body::from(data)
+                            }
+                        }
+                    }),
+                );
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let addr = listener.local_addr().unwrap();
+                let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+                let result = fetch_sub(
+                    &format!("http://{addr}/sub"),
+                    &reqwest::Client::builder().no_proxy().build().unwrap(),
+                )
+                .await;
+                server.abort();
+                if extra == 0 {
+                    let parsed = result.unwrap();
+                    assert_eq!(parsed.node_names, vec!["bounded"]);
+                    assert_eq!(parsed.outbounds[0]["server"], "example.com");
+                } else {
+                    let error = result.unwrap_err();
+                    assert_eq!(error.kind, SubscriptionFailureKind::Parse);
+                    assert!(error.to_string().contains("4 MiB"));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn subscription_node_limit_counts_entries_before_filtering() {
+        let valid = "{name: kept, type: ss, server: example.com, port: 8388, cipher: aes-128-gcm, password: pass}";
+        let yaml = format!("proxies: [{valid},{}]", vec!["null"; 9999].join(","));
+        let result = parse_clash_proxies(&yaml).unwrap();
+        assert_eq!(result.total_count, 10_000);
+        assert_eq!(result.nodes.len(), 1);
+        assert_eq!(result.nodes[0].0, "kept");
+        let oversized = format!("proxies: [{valid},{}]", vec!["null"; 10_000].join(","));
+        assert!(parse_clash_proxies(&oversized)
+            .unwrap_err()
+            .to_string()
+            .contains("10000"));
+    }
 
     #[tokio::test]
     async fn fetch_sub_rejects_http_error_status() {

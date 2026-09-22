@@ -408,7 +408,7 @@ describe('App onboarding integration', () => {
     await act(async () => {})
 
     // 后端不可达：显示重连提示，而不是把默认空状态误判成引导页
-    expect(screen.getByText('无法连接后端，正在自动重试…')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('无法连接后端，正在自动重试…')
     expect(screen.queryByText('添加订阅链接或手动节点以开始使用')).not.toBeInTheDocument()
 
     // 后台轮询仍在继续重试

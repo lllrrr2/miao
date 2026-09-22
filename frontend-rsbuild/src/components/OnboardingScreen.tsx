@@ -80,6 +80,7 @@ export function OnboardingScreen({ onAddSub, pendingActions, onOpenAddNode, show
         <div className="onboarding-section">
           <div className="onboarding-input-row">
             <input
+              aria-label="订阅链接"
               value={subUrl}
               onChange={(e) => setSubUrl(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAddSub()}

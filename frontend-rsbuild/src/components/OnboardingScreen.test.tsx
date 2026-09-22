@@ -34,7 +34,7 @@ describe('OnboardingScreen', () => {
 
     renderOnboarding({ onAddSub })
 
-    await user.type(screen.getByPlaceholderText('粘贴订阅链接...'), '  https://example.com/sub  ')
+    await user.type(screen.getByRole('textbox', { name: '订阅链接' }), '  https://example.com/sub  ')
     await user.click(screen.getByRole('button', { name: /添加订阅/ }))
 
     expect(onAddSub).toHaveBeenCalledWith('https://example.com/sub')

@@ -21,6 +21,10 @@ pub fn parse_clash_proxies(clash_yaml: &str) -> AppResult<ParseResult> {
 
     let proxy_list = clash_obj.get("proxies").and_then(|p| p.as_sequence());
     let proxies = proxy_list.map(Vec::as_slice).unwrap_or_default();
+    // Count the original entries, before unsupported/invalid nodes are skipped.
+    if proxies.len() > 10_000 {
+        return Err(AppError::message("订阅节点数超过 10000 上限"));
+    }
 
     let mut result = ParseResult {
         has_proxy_list: proxy_list.is_some(),

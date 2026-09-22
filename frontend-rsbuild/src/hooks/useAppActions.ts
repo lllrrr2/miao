@@ -6,6 +6,17 @@ import { waitForUpgrade } from './upgrade'
 import type { useAppData } from './useAppData'
 import type {
   NodeRequest,
+  RouteModeRequest,
+  MaxMultiplierRequest,
+  NodeSelectRequest,
+  LastProxy,
+  SubRequest,
+  SubBatchRequest,
+  SetNodeDisabledRequest,
+  BatchNodeRequest,
+  DeleteNodeRequest,
+  DeleteRuleRequest,
+  McpRequest,
   SwitchProxyResult,
   BatchNodeResult,
   NodeSelect,
@@ -80,7 +91,7 @@ export function useAppActions(data: AppData) {
     try {
       await apiCall(
         'route-mode',
-        { method: 'POST', body: JSON.stringify({ route_mode: nextMode }) },
+        { method: 'POST', body: JSON.stringify({ route_mode: nextMode } satisfies RouteModeRequest) },
         'routeMode'
       )
       clearDelays()
@@ -122,7 +133,7 @@ export function useAppActions(data: AppData) {
     try {
       await apiCall(
         'max-multiplier',
-        { method: 'POST', body: JSON.stringify({ max_multiplier: nextMultiplier }) },
+        { method: 'POST', body: JSON.stringify({ max_multiplier: nextMultiplier } satisfies MaxMultiplierRequest) },
         'maxMultiplier'
       )
       clearDelays()
@@ -147,7 +158,7 @@ export function useAppActions(data: AppData) {
     try {
       const payload = await apiCall(
         'node-select',
-        { method: 'POST', body: JSON.stringify({ node_select: nextSelect }) },
+        { method: 'POST', body: JSON.stringify({ node_select: nextSelect } satisfies NodeSelectRequest) },
         'nodeSelect'
       )
       clearDelays()
@@ -174,7 +185,7 @@ export function useAppActions(data: AppData) {
     setSwitchingNode(nodeName)
     try {
       const response = await apiCall<SwitchProxyResult>('proxy/switch', {
-        method: 'POST', body: JSON.stringify({ group: groupName, name: nodeName }),
+        method: 'POST', body: JSON.stringify({ group: groupName, name: nodeName } satisfies LastProxy),
       }, 'switchProxy')
       await fetchProxies()
       showToast(response.data?.persisted
@@ -196,7 +207,7 @@ export function useAppActions(data: AppData) {
       return false
     }
     try {
-      await apiCall('subs', { method: 'POST', body: JSON.stringify({ url: trimmed }) }, 'addSub')
+      await apiCall('subs', { method: 'POST', body: JSON.stringify({ url: trimmed } satisfies SubRequest) }, 'addSub')
       clearDelays()
       await fetchSubs()
       showToast('订阅已添加', 'success')
@@ -209,7 +220,7 @@ export function useAppActions(data: AppData) {
 
   const handleOnboardingAddSub = useCallback(async (url: string): Promise<boolean> => {
     try {
-      await apiCall('subs', { method: 'POST', body: JSON.stringify({ url }) }, 'addSub')
+      await apiCall('subs', { method: 'POST', body: JSON.stringify({ url } satisfies SubRequest) }, 'addSub')
       clearDelays()
       await fetchSubs()
       showToast('订阅已添加', 'success')
@@ -234,7 +245,7 @@ export function useAppActions(data: AppData) {
     try {
       const response = await apiCall<SubBatchResult>(
         'subs/batch',
-        { method: 'POST', body: JSON.stringify({ urls }) },
+        { method: 'POST', body: JSON.stringify({ urls } satisfies SubBatchRequest) },
         'importVerge'
       )
       clearDelays()
@@ -249,7 +260,7 @@ export function useAppActions(data: AppData) {
 
   const handleDeleteSubscription = useCallback(async (url: string) => {
     try {
-      await apiCall('subs', { method: 'DELETE', body: JSON.stringify({ url }) }, 'deleteSub')
+      await apiCall('subs', { method: 'DELETE', body: JSON.stringify({ url } satisfies SubRequest) }, 'deleteSub')
       await fetchSubs()
       clearDelays()
       showToast('订阅已删除', 'success')
@@ -282,7 +293,7 @@ export function useAppActions(data: AppData) {
     try {
       await apiCall(
         'subs/nodes/disabled',
-        { method: 'POST', body: JSON.stringify({ sub, name, disabled }) },
+        { method: 'POST', body: JSON.stringify({ sub, name, disabled } satisfies SetNodeDisabledRequest) },
         'toggleSubNode'
       )
       await fetchSubs()
@@ -320,7 +331,7 @@ export function useAppActions(data: AppData) {
     try {
       const response = await apiCall<BatchNodeResult>(
         'nodes/import',
-        { method: 'POST', body: JSON.stringify({ nodes: payloads }) },
+        { method: 'POST', body: JSON.stringify({ nodes: payloads } satisfies BatchNodeRequest) },
         'importNodes',
       )
       const result = response.data || { added: [], failed: [] }
@@ -345,7 +356,7 @@ export function useAppActions(data: AppData) {
   const handleDeployVps = useCallback(async ({ ip, password }: VpsDeployRequest): Promise<boolean> => {
     const payload = await apiCall<VpsDeployResponse>(
       'vps/deploy',
-      { method: 'POST', body: JSON.stringify({ ip, password }) },
+      { method: 'POST', body: JSON.stringify({ ip, password } satisfies VpsDeployRequest) },
       'deployVps',
     )
     closeNodeModal()
@@ -357,7 +368,7 @@ export function useAppActions(data: AppData) {
 
   const handleDeleteNode = useCallback(async (tag: string) => {
     try {
-      await apiCall('nodes', { method: 'DELETE', body: JSON.stringify({ tag }) }, 'deleteNode')
+      await apiCall('nodes', { method: 'DELETE', body: JSON.stringify({ tag } satisfies DeleteNodeRequest) }, 'deleteNode')
       await fetchNodes()
       clearDelays()
       showToast('节点已删除', 'success')
@@ -440,7 +451,7 @@ export function useAppActions(data: AppData) {
 
   const handleAddRule = useCallback(async ({ field, value, target }: RuleRequest): Promise<boolean> => {
     try {
-      await apiCall('rules', { method: 'POST', body: JSON.stringify({ field, value, target }) }, 'addRule')
+      await apiCall('rules', { method: 'POST', body: JSON.stringify({ field, value, target } satisfies RuleRequest) }, 'addRule')
       await fetchRules()
       showToast('规则已添加', 'success')
       return true
@@ -452,7 +463,7 @@ export function useAppActions(data: AppData) {
 
   const handleDeleteRule = useCallback(async (rule: RuleInfo) => {
     try {
-      await apiCall('rules', { method: 'DELETE', body: JSON.stringify({ index: rule.index, raw: rule.raw }) }, 'deleteRule')
+      await apiCall('rules', { method: 'DELETE', body: JSON.stringify({ index: rule.index, raw: rule.raw } satisfies DeleteRuleRequest) }, 'deleteRule')
       await fetchRules()
       showToast('规则已删除', 'success')
     } catch (error) {
@@ -467,7 +478,7 @@ export function useAppActions(data: AppData) {
 
   const handleToggleMcp = useCallback(async (enabled: boolean) => {
     try {
-      await apiCall('mcp', { method: 'POST', body: JSON.stringify({ enabled }) }, 'toggleMcp')
+      await apiCall('mcp', { method: 'POST', body: JSON.stringify({ enabled } satisfies McpRequest) }, 'toggleMcp')
       await fetchStatus()
       showToast(enabled ? 'MCP 端点已开启' : 'MCP 端点已关闭', 'success')
     } catch (error) {

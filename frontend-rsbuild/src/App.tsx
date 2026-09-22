@@ -10,13 +10,13 @@ export default function App() {
   const app = useAppController()
 
   if (!app.firstLoadDone) {
-    return <div className="shell"><div className="onboarding-loading">加载中…</div></div>
+    return <div className="shell"><div className="onboarding-loading" role="status">加载中…</div></div>
   }
 
   // 首载从未拿到过后端响应 = 后端不可达（没起/宕机），不能按默认空数据误判成引导页；
   // 轮询仍在后台继续，恢复后自动进入正常流程
   if (!app.statusLoaded) {
-    return <div className="shell"><div className="onboarding-loading">无法连接后端，正在自动重试…</div></div>
+    return <div className="shell"><div className="onboarding-loading" role="status">无法连接后端，正在自动重试…</div></div>
   }
 
   if (app.needsOnboarding) {
