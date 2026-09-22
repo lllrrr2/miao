@@ -3,6 +3,7 @@ import { CONNECTIONS_MODAL_MIN_WIDTH } from '../tokens'
 import { validateSubscriptionUrl } from '../utils'
 import { buildNodeRequest } from '../nodeForm'
 import { waitForUpgrade } from './upgrade'
+import { useVpsDeployment } from './useVpsDeployment'
 import type { useAppData } from './useAppData'
 import type {
   NodeRequest,
@@ -26,8 +27,6 @@ import type {
   ScheduledRefreshRequest,
   SubBatchResult,
   VergeImportResult,
-  VpsDeployRequest,
-  VpsDeployResponse,
 } from '../types/api'
 
 type AppData = ReturnType<typeof useAppData>
@@ -37,6 +36,7 @@ function errorMessage(error: unknown): string {
 }
 
 export function useAppActions(data: AppData) {
+  const { vpsTasks, vpsDeploying, handleDeployVps } = useVpsDeployment(data)
   const {
     status,
     apiCall,
@@ -353,19 +353,6 @@ export function useAppActions(data: AppData) {
     }
   }, [apiCall, clearDelays, closeNodeModal, fetchNodes, showToast])
 
-  const handleDeployVps = useCallback(async ({ ip, password }: VpsDeployRequest): Promise<boolean> => {
-    const payload = await apiCall<VpsDeployResponse>(
-      'vps/deploy',
-      { method: 'POST', body: JSON.stringify({ ip, password } satisfies VpsDeployRequest) },
-      'deployVps',
-    )
-    closeNodeModal()
-    await fetchNodes()
-    clearDelays()
-    showToast(payload.message, 'success')
-    return true
-  }, [apiCall, clearDelays, closeNodeModal, fetchNodes, showToast])
-
   const handleDeleteNode = useCallback(async (tag: string) => {
     try {
       await apiCall('nodes', { method: 'DELETE', body: JSON.stringify({ tag } satisfies DeleteNodeRequest) }, 'deleteNode')
@@ -518,6 +505,8 @@ export function useAppActions(data: AppData) {
     handleAddNode,
     handleImportNodes,
     handleDeployVps,
+    vpsTasks,
+    vpsDeploying,
     handleTestDelay,
     handleTestGroupDelays,
     handleOpenConnections,

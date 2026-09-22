@@ -28,6 +28,33 @@ describe('App onboarding integration', () => {
     rs.unstubAllGlobals()
   })
 
+  it('retains deployment results after closing the pane without closing a subsequently opened dialog', async () => {
+    let finish!: (response: ReturnType<typeof jsonResponse>) => void
+    rs.stubGlobal('fetch', rs.fn(async (input) => {
+      const url = String(input)
+      if (url === '/api/status') return jsonResponse({ success: true, data: statusMock() })
+      if (url === '/api/subs' || url === '/api/nodes' || url === '/api/rules') return jsonResponse({ success: true, data: [] })
+      if (url === '/api/version') return jsonResponse({ success: true, data: { current: '0.48.1', latest: null, has_update: false } })
+      if (url === '/api/vps/deploy') return new Promise<ReturnType<typeof jsonResponse>>(resolve => { finish = resolve })
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+    stubMatchMedia()
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: '手动添加节点' }))
+    await user.click(screen.getByRole('button', { name: 'VPS 部署' }))
+    await user.type(screen.getByLabelText('VPS IP 地址'), '203.0.113.10')
+    await user.type(screen.getByLabelText('root 密码'), 'demo')
+    await user.click(screen.getByRole('button', { name: '开始部署' }))
+    await user.click(screen.getByRole('button', { name: '关闭节点对话框' }))
+    expect(screen.getByText(/VPS 部署记录 · 等待部署结果/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '手动添加节点' }))
+    await act(async () => { finish(jsonResponse({ success: true, message: '部署完成' })) })
+    expect(screen.getByRole('dialog', { name: '添加节点' })).toBeInTheDocument()
+    expect(screen.getByLabelText('节点分享链接')).toBeInTheDocument()
+    expect(screen.getByText(/VPS 部署记录 · 已完成/)).toBeInTheDocument()
+  })
+
   it('reports upgrade acceptance, then restores the button when only the old version returns', async () => {
     rs.useFakeTimers()
     let upgrades = 0

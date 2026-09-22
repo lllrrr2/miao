@@ -15,6 +15,7 @@ import { ICON } from '../tokens'
 import type { useAppController } from '../hooks/useAppController'
 import { Button } from './ui'
 import { ConnectivityCheck } from './ConnectivityCheck'
+import { VpsTasks } from './VpsTasks'
 
 const PHASE_MESSAGE = {
   initializing: '正在初始化运行环境…',
@@ -159,6 +160,7 @@ export function DashboardScreen({ app }: { app: ReturnType<typeof useAppControll
                 }
               }}
             />
+            <VpsTasks tasks={app.vpsTasks} />
           </div>
         </div>
 
@@ -179,7 +181,7 @@ export function DashboardScreen({ app }: { app: ReturnType<typeof useAppControll
         setNodeType={app.setNodeType}
         form={app.nodeForm}
         setForm={app.setNodeForm}
-        loading={['addNode', 'importNodes', 'deployVps'].some((action) => app.pendingActions.has(action))}
+        loading={app.vpsDeploying || ['addNode', 'importNodes'].some((action) => app.pendingActions.has(action))}
         onClose={app.closeNodeModal}
         onSubmit={app.handleAddNode}
         onImport={app.handleImportNodes}

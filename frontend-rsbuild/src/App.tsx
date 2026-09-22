@@ -4,6 +4,7 @@ import {
   OnboardingScreen,
 } from './components/index'
 import { DashboardScreen } from './components/DashboardScreen'
+import { VpsTasks } from './components/VpsTasks'
 import { useAppController } from './hooks/useAppController'
 
 export default function App() {
@@ -30,6 +31,7 @@ export default function App() {
           onScanVerge={app.scanClashVerge}
           onImportVerge={app.importClashVergeSubs}
         />
+        <VpsTasks tasks={app.vpsTasks} />
         <ToastStack toasts={app.toasts} onDismiss={app.dismissToast} />
         <NodeModal
           open={app.showNodeModal}
@@ -37,7 +39,7 @@ export default function App() {
           setNodeType={app.setNodeType}
           form={app.nodeForm}
           setForm={app.setNodeForm}
-          loading={['addNode', 'importNodes', 'deployVps'].some((action) => app.pendingActions.has(action))}
+          loading={app.vpsDeploying || ['addNode', 'importNodes'].some((action) => app.pendingActions.has(action))}
           onClose={app.closeNodeModal}
           onSubmit={app.handleAddNode}
           onImport={app.handleImportNodes}

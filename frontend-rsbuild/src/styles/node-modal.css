@@ -213,3 +213,40 @@
     opacity: 0;
     pointer-events: none;
 }
+.vps-tasks {
+    flex-shrink: 0;
+    padding: var(--space-3);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-normal);
+    overflow-wrap: anywhere;
+}
+.vps-tasks > summary {
+    cursor: pointer;
+    color: var(--text-strong);
+    font-weight: var(--fw-semibold);
+}
+.right-column > .vps-tasks {
+    display: block;
+    flex: 0 0 auto;
+}
+.vps-tasks p,
+.vps-tasks article > div {
+    color: var(--text-muted);
+}
+.vps-tasks-list {
+    max-height: var(--modal-h-node);
+    overflow-y: auto;
+}
+.vps-tasks article {
+    padding: var(--space-2) 0;
+    border-top: var(--bw) solid var(--border-soft);
+}
+.shell > .vps-tasks {
+    max-height: 50%;
+    overflow-y: auto;
+    margin: var(--space-3);
+}
+.shell:has(> .vps-tasks) > .onboarding {
+    flex: 1;
+    min-height: 0;
+}

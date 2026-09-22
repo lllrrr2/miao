@@ -15,6 +15,7 @@ export function VpsPane({ onDeploy, loading }: VpsPaneProps) {
   const [password, setPassword] = useState('')
   const [deploying, setDeploying] = useState(false)
   const [error, setError] = useState('')
+  const [completed, setCompleted] = useState(false)
   const [errorSummary, ...errorDetails] = error.split('\n\n')
   const busy = loading || deploying
   const canDeploy = ip.trim().length > 0 && password.length > 0
@@ -23,9 +24,14 @@ export function VpsPane({ onDeploy, loading }: VpsPaneProps) {
     if (!canDeploy || busy) return
     setDeploying(true)
     setError('')
+    setCompleted(false)
     try {
       const result = await onDeploy({ ip: ip.trim(), password })
       if (result === false) setError('部署未完成，请检查 VPS 配置后重试。')
+      else {
+        setCompleted(true)
+        setPassword('')
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '部署失败，请检查网络后重试。')
     } finally {
@@ -65,6 +71,8 @@ export function VpsPane({ onDeploy, loading }: VpsPaneProps) {
         <div className="vps-deploy-hint">
           密码仅用于本次部署，不会被保存。需允许 root 密码登录 SSH（端口 22），仅支持密钥登录的 VPS 暂不适用。支持使用 systemd 的常见 Linux 发行版及 Alpine/OpenRC，将自动补齐依赖并配置 Hysteria2。部署后请在安全组及防火墙放行 543/UDP。
         </div>
+        <p className="vps-deploy-hint">关闭本窗口不会取消部署，可在页面的「VPS 部署记录」查看结果。请勿刷新或关闭页面；连接中断时应先核对远端状态，勿直接重复部署。</p>
+        {completed && <p className="vps-deploy-hint" role="status">部署接口已确认完成。关闭本窗口可查看部署记录与节点列表。</p>}
       </div>
       {error ? (
         <div className="vps-deploy-error" role="alert">
